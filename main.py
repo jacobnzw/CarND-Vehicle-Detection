@@ -24,6 +24,12 @@ def load_data():
     IMGDIR_VEHICLE_GTI_FAR = os.path.join('vehicles', 'GTI_Far')
     IMGDIR_VEHICLE_KITTI = os.path.join('vehicles', 'KITTI_extracted')
     IMGDIR_NONVEHICLE_GTI = os.path.join('non-vehicles', 'GTI')
+
+    # make lists of file names for cars and non-cars
+    # take equal number of images from left, right, middle-close and far directories
+    # combine into one car list
+    # obtain the same amount of non-cars as cars
+    glob.glob()
     pass
 
 
