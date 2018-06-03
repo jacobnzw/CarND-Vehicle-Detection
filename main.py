@@ -122,7 +122,7 @@ if __name__ == '__main__':
     data = np.load('data_2k_hog.npz')
     X, y = data['features'], data['labels']
 
-    from sklearn.model_selection import train_test_split
+    from sklearn.model_selection import train_test_split, GridSearchCV
     from sklearn.svm import LinearSVC, SVC
     X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8)
 
@@ -130,3 +130,8 @@ if __name__ == '__main__':
     clf = LinearSVC()
     clf.fit(X_train, y_train)
     print('Mean accuracy {}'.format(clf.score(X_test, y_test)))
+
+    # print('Fitting LinearSVC grid search...')
+    # clf = GridSearchCV(clf, {'C': np.logspace(-3, 3, 10)}, scoring='f1', n_jobs=3)
+    # clf.fit(X_train, y_train)
+    # print('Mean accuracy {}'.format(clf.score(X_test, y_test)))
