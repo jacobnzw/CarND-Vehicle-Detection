@@ -21,7 +21,6 @@ LABEL_CAR = 1
 LABEL_NONCAR = 0
 
 
-# TODO: data pre-processing, train/validation/test split
 def prep_data_files():
     # make lists of file names for cars and non-cars
     car_left = glob.glob(os.path.join('vehicles', 'GTI_Left', '*.png'))
@@ -83,8 +82,10 @@ def get_hog_features(img, orient, pix_per_cell, cell_per_block, vis=False, featu
     else:
         return result
 
+# TODO: more features: color histograms, spatial binning of color (raw pixels of subsampled image)
+# TODO: experiment with PCA dimensionality reduction of the raw pixel values
 
-# TODO: feature extraction, save features to speed up testing
+
 def extract_features(car_filenames, noncar_filenames):
     features = []
     labels = []
@@ -131,7 +132,10 @@ if __name__ == '__main__':
     clf.fit(X_train, y_train)
     print('Mean accuracy {}'.format(clf.score(X_test, y_test)))
 
-    # print('Fitting LinearSVC grid search...')
-    # clf = GridSearchCV(clf, {'C': np.logspace(-3, 3, 10)}, scoring='f1', n_jobs=3)
-    # clf.fit(X_train, y_train)
-    # print('Mean accuracy {}'.format(clf.score(X_test, y_test)))
+    # TODO: finish preliminary version of the whole pipeline
+
+    print('Fitting LinearSVC grid search...')
+    from sklearn.metrics import accuracy_score, make_scorer
+    clf = GridSearchCV(clf, {'C': np.logspace(-3, 3, 10)}, scoring=make_scorer(accuracy_score), n_jobs=3)
+    clf.fit(X_train, y_train)
+    print('Mean accuracy {:.2f} (Best params: {:.4e})'.format(clf.score(X_test, y_test), clf.best_params_['C']))
