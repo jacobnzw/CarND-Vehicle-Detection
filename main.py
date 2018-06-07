@@ -14,6 +14,23 @@ class VehicleDetector:
     """
 
     def __init__(self):
+        self.boxes = []  # list of bounding boxes pre-computed
+        self.classifier = None  # handle for storing a classifier
+        self.heat_maps = []  # list of heat maps from several previous frames
+
+    def _process_frame(self, img_bgr):
+        # vehicle detection pipeline
+
+        # feed cropped image to classifier
+        # pick out boxes predicted as containing a car
+
+        # remove false positives
+        # create heat map for the current frame
+        # integrate with heat maps form past frames
+        # threshold away "cool" detections
+
+        # draw bounding boxes around detected cars
+
         pass
 
 
@@ -271,7 +288,7 @@ def draw_boxes(img, bboxes, color=(0, 0, 255), thick=6):
 
 if __name__ == '__main__':
     # TODO: finish preliminary version of the whole pipeline
-    car_list, noncar_list = prep_data_files()
+    # car_list, noncar_list = prep_data_files()
     # X, y = extract_features(car_list, noncar_list)
 
     # # save extracted features and labels
@@ -299,7 +316,7 @@ if __name__ == '__main__':
 
     print('Processing test image...')
     test_files = glob.glob(os.path.join(IMGDIR_TEST, '*.jpg'))
-    img = cv2.cvtColor(cv2.imread(test_files[2]), cv2.COLOR_BGR2GRAY)
+    img = cv2.cvtColor(cv2.imread(test_files[1]), cv2.COLOR_BGR2GRAY)
     windows = slide_window(img, y_start_stop=[400, 500], x_start_stop=[600, None], xy_overlap=(0.5, 0.5))
     test_features = []
     for win in windows:
@@ -319,4 +336,4 @@ if __name__ == '__main__':
     ax.imshow(img_boxes, cmap='gray')
     plt.show()
 
-    pca_demo(car_list, noncar_list)
+    # pca_demo(car_list, noncar_list)
