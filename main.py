@@ -8,6 +8,8 @@ import os
 import glob
 from moviepy.editor import VideoFileClip
 from sklearn.externals import joblib
+from collections import deque
+from scipy.ndimage.measurements import label
 
 
 class VehicleDetector:
@@ -20,19 +22,27 @@ class VehicleDetector:
     IMGDIR_TEST = 'test_images'
     IMG_SHAPE = (720, 1280, 3)
     BASE_WIN_SHAPE = (64, 64)
+    HEATMAP_BUFFER_LEN = 4  # combine heat-maps from HEATMAP_BUFFER_LEN past frames
+    HEATMAP_THRESHOLD = 2
 
     def __init__(self):
         self.boxes = []  # list of bounding boxes pre-computed
         self.classifier = joblib.load('clf_svm_linear.pkl')  # handle for storing a classifier
-        self.heat_maps = []  # list of heat maps from several previous frames
+        self.hm_buffer = deque()  # list of heat maps from several previous frames
+        # decay for weighted averaging of past heat-maps
+        self.hm_weights = np.array([(1-1/self.HEATMAP_BUFFER_LEN)**i for i in range(self.HEATMAP_BUFFER_LEN)])
+        self.hm_weights /= self.hm_weights.sum()
 
         # standard feature scaler
         self.scaler = StandardScaler()
 
         # pre-compute windows
         # contains lists of windows, one window list for each depth level
-        self.windows = self._slide_window(y_start_stop=[400, 500],
+        self.windows = self._slide_window(y_start_stop=[400, 650],
                                           x_start_stop=[200, None], xy_overlap=(0.5, 0.5))
+
+        # pre-allocate blank image for speed
+        self.img_blank = np.zeros(self.IMG_SHAPE[:2])
 
     def _slide_window(self, x_start_stop=[None, None], y_start_stop=[None, None],
                      xy_window=(64, 64), xy_overlap=(0.5, 0.5)):
@@ -48,7 +58,7 @@ class VehicleDetector:
             Starting and stopping position of a window sliding in y (vertical) direction.
         xy_window : (int, int)
             Window width and height
-        xy_overlap : (int, int)
+        xy_overlap : (float, float)
             Window overlap in x (horizontal) and y (vertical) directions.
 
         Notes
@@ -237,6 +247,38 @@ class VehicleDetector:
         # Return the image copy with boxes drawn
         return imcopy
 
+    def _reduce_false_positives(self, car_boxes):
+        hm = self.img_blank.copy()
+        for box in car_boxes:
+            # add heat to all pixels inside each bbox
+            hm[box[0][1]:box[1][1], box[0][0]:box[1][0]] += 1
+
+        # maintain pre-defined length of the heat-map buffer
+        buff_len = len(self.hm_buffer)
+        if buff_len < self.HEATMAP_BUFFER_LEN:
+            self.hm_buffer.append(hm)
+        if buff_len == self.HEATMAP_BUFFER_LEN:
+            # remove the oldest heat-map and add the newest from the other end
+            self.hm_buffer.popleft()
+            self.hm_buffer.append(hm)
+            # integrate heat-maps from past frames
+            hm = np.uint8(np.average(np.array(self.hm_buffer), axis=0, weights=self.hm_weights))
+
+        # threshold away "cool" detections
+        hm[hm <= self.HEATMAP_THRESHOLD] = 0
+        # identify connected components
+        img_labeled, num_objects = label(hm)
+
+        # compute bbox coordinates of the found objects
+        car_boxes = []
+        for car_number in range(num_objects):
+            nonzero = (img_labeled == car_number+1).nonzero()
+            nonzeroy = np.array(nonzero[0])
+            nonzerox = np.array(nonzero[1])
+            car_boxes.append(((np.min(nonzerox), np.min(nonzeroy)), (np.max(nonzerox), np.max(nonzeroy))))
+
+        return car_boxes
+
     def _process_frame(self, img_bgr):
         # vehicle detection pipeline
 
@@ -256,10 +298,8 @@ class VehicleDetector:
         # pick out boxes predicted as containing a car
         car_boxes = [self.windows[i] for i in np.argwhere(y_pred == LABEL_CAR).squeeze()]
 
-        # TODO: remove false positives
-        # create heat map for the current frame
-        # integrate with heat maps form past frames
-        # threshold away "cool" detections
+        # reduce false positives
+        car_boxes = self._reduce_false_positives(car_boxes)
 
         # draw bounding boxes around detected cars
         img_out = self._draw_boxes(img_bgr, car_boxes)
@@ -629,4 +669,4 @@ if __name__ == '__main__':
     # out = vd.process_image(os.path.join(IMGDIR_TEST, 'test1.jpg'))
     # plt.imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
     # plt.show()
-    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4')
+    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=20, end_time=35)
