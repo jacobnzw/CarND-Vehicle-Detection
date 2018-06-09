@@ -27,7 +27,7 @@ class VehicleDetector:
 
     def __init__(self):
         self.boxes = []  # list of bounding boxes pre-computed
-        self.classifier = joblib.load('clf_svm_linear.pkl')  # handle for storing a classifier
+        self.classifier = joblib.load('clf_svm_rbf.pkl')  # handle for storing a classifier
         self.hm_buffer = deque()  # list of heat maps from several previous frames
         # decay for weighted averaging of past heat-maps
         self.hm_weights = np.array([(1-1/self.HEATMAP_BUFFER_LEN)**i for i in range(self.HEATMAP_BUFFER_LEN)])
@@ -299,7 +299,7 @@ class VehicleDetector:
         car_boxes = [self.windows[i] for i in np.argwhere(y_pred == LABEL_CAR).squeeze()]
 
         # reduce false positives
-        car_boxes = self._reduce_false_positives(car_boxes)
+        # car_boxes = self._reduce_false_positives(car_boxes)
 
         # draw bounding boxes around detected cars
         img_out = self._draw_boxes(img_bgr, car_boxes)
@@ -357,13 +357,29 @@ class VehicleDetector:
             out_clip.write_videofile(outfile, audio=False)
         return out_clip
 
+    def train_classifier(self, data_file=None, dump_file=None):
+        # TODO: finish method
+        if data_file is not None:
+            # train using features/labels from data_file
+            pass
+        else:
+            # train using the standard data from prep_data_files()
+            pass
+
+        if dump_file is not None:
+            # dump classifier using dump_file name
+            pass
+        else:
+            # dump classifier using default name
+            pass
+
 
 LABEL_CAR = 1
 LABEL_NONCAR = 0
 IMGDIR_TEST = 'test_images'
 
 
-def prep_data_files():
+def prep_data_files():  # TODO: think of better name
     # make lists of file names for cars and non-cars
     car_left = glob.glob(os.path.join('vehicles', 'GTI_Left', '*.png'))
     car_right = glob.glob(os.path.join('vehicles', 'GTI_Right', '*.png'))
@@ -386,7 +402,42 @@ def prep_data_files():
     np.random.shuffle(noncar_files)
     noncar_list = noncar_files[:len(car_list)]
 
-    return car_list, noncar_list
+    # extract feature vectors from each image and create labels
+    features = []
+    labels = []
+    for file in car_list:
+        img = cv2.imread(file)
+        feat_hog = extract_features(img)
+        features.append(feat_hog)
+        labels.append(LABEL_CAR)
+    for file in noncar_list:
+        img = cv2.imread(file)
+        feat_hog = extract_features(img)
+        features.append(feat_hog)
+        labels.append(LABEL_NONCAR)
+
+    # shuffle features and labels
+    features, labels = shuffle(np.array(features), np.array(labels))
+
+    # feature normalization
+    scaler = StandardScaler()
+    scaler.fit(features)
+    features = scaler.transform(features)
+
+    return features, labels
+
+
+def extract_features(img_bgr):
+    features = []
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    # histogram of oriented gradients
+    features.append(get_hog_features(gray, 9, 8, 2))
+    # color histograms
+    # features.append(get_color_histogram_features(img_bgr))
+    # raw pixel values
+    features.append(get_raw_pixel_features(img_bgr, color_space='BGR', size=(32, 32)))
+
+    return np.concatenate(features)
 
 
 def get_hog_features(img, orient, pix_per_cell, cell_per_block, vis=False, feature_vec=True):
@@ -415,14 +466,21 @@ def get_hog_features(img, orient, pix_per_cell, cell_per_block, vis=False, featu
 
     result = hog(img, orientations=orient, pixels_per_cell=(pix_per_cell, pix_per_cell),
                  cells_per_block=(cell_per_block, cell_per_block),
-                 block_norm='L2-Hys', transform_sqrt=False,
+                 block_norm='L2-Hys', transform_sqrt=True,
                  visualise=vis, feature_vector=feature_vec)
-
-    # name returns explicitly
     if vis:
         return result[0], result[1]
     else:
         return result
+
+
+def get_color_histogram_features(img_bgr, nbins=32, bins_range=(0, 256)):
+    # Compute the histogram of the RGB channels separately
+    bhist = np.histogram(img_bgr[:, :, 0], bins=nbins, range=bins_range)
+    ghist = np.histogram(img_bgr[:, :, 1], bins=nbins, range=bins_range)
+    rhist = np.histogram(img_bgr[:, :, 2], bins=nbins, range=bins_range)
+    # Concatenate the histograms into a single feature vector
+    return np.concatenate((bhist[0], ghist[0], rhist[0]))
 
 
 def get_raw_pixel_features(img, color_space='BGR', size=(32, 32)):
@@ -462,7 +520,6 @@ def get_raw_pixel_features(img, color_space='BGR', size=(32, 32)):
     return features
 
 
-# TODO: more features: color histograms
 def pca_demo(car_filenames, noncar_filenames, var_cutoff=0.95):
     """
     Attempt dimensionality reduction of raw pixel data.
@@ -508,32 +565,6 @@ def pca_demo(car_filenames, noncar_filenames, var_cutoff=0.95):
     plt.show()
 
 
-def extract_features(car_filenames, noncar_filenames):
-    features = []
-    labels = []
-    for file in car_filenames:
-        img = cv2.imread(file)
-        feat_hog = get_hog_features(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), 9, 8, 2)
-        features.append(feat_hog)
-        labels.append(LABEL_CAR)
-
-    for file in noncar_filenames:
-        img = cv2.imread(file)
-        feat_hog = get_hog_features(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), 9, 8, 2)
-        features.append(feat_hog)
-        labels.append(LABEL_NONCAR)
-
-    # shuffle features and labels
-    features, labels = shuffle(np.array(features), np.array(labels))
-
-    # feature normalization
-    scaler = StandardScaler()
-    scaler.fit(features)
-    features = scaler.transform(features)
-
-    return features, labels
-
-
 def slide_window(img, x_start_stop=[None, None], y_start_stop=[None, None],
                  xy_window=(64, 64), xy_overlap=(0.5, 0.5)):
     """
@@ -548,7 +579,7 @@ def slide_window(img, x_start_stop=[None, None], y_start_stop=[None, None],
         Starting and stopping position of a window sliding in y (vertical) direction.
     xy_window : (int, int)
         Window width and height
-    xy_overlap : (int, int)
+    xy_overlap : (float, float)
         Window overlap in x (horizontal) and y (vertical) directions.
 
     Notes
@@ -611,44 +642,47 @@ def draw_boxes(img, bboxes, color=(0, 0, 255), thick=6):
 
 
 if __name__ == '__main__':
-    # # TODO: finish preliminary version of the whole pipeline
-    # # car_list, noncar_list = prep_data_files()
-    # # X, y = extract_features(car_list, noncar_list)
-    #
-    # # # save extracted features and labels
-    # # np.savez('data_2k', X, y, features=X, labels=y)
-    #
+    X, y = prep_data_files()
+
+    # TODO: use more car examples from KITTI and noncar examples from extras
+    # save extracted features and labels
+    np.savez('data_extended', X, y, features=X, labels=y)
+
     # # load features and labels
     # data = np.load('data_2k_hog.npz')
     # X, y = data['features'], data['labels']
     # #
     # from sklearn.model_selection import train_test_split, GridSearchCV
     # from sklearn.svm import LinearSVC, SVC
+    # from sklearn.metrics import accuracy_score, recall_score, precision_score, make_scorer
     # X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8)
     #
-    # print('Fitting LinearSVC...')
-    # clf = LinearSVC()
-    # clf.set_params(C=0.004)
-    # clf.fit(X_train, y_train)
-    # print('Mean accuracy {}'.format(clf.score(X_test, y_test)))
-    #
-    # joblib.dump(clf, 'clf_svm_linear.pkl')
-    #
-    # # print('Fitting LinearSVC grid search...')
-    # # from sklearn.metrics import accuracy_score, make_scorer
-    # # clf = GridSearchCV(clf, {'C': np.logspace(-3, 3, 10)}, scoring=make_scorer(accuracy_score), n_jobs=3)
+    # # clf = SVC()
+    # # clf.set_params(C=1e3, gamma=1e-2)
+    # # print('Fitting {} ...'.format(clf.__class__.__name__))
     # # clf.fit(X_train, y_train)
-    # # print('Mean accuracy {:.2f} (Best params: {:.4e})'.format(clf.score(X_test, y_test), clf.best_params_['C']))
+    # # y_pred = clf.predict(X_test)
+    # # print('Mean accuracy {}, precision {}'.format(clf.score(X_test, y_test), recall_score(y_test, y_pred)))
+    # #
+    # # print('Fitting {} grid search...'.format(clf.__class__.__name__))
+    # # clf = GridSearchCV(clf, {'C': np.logspace(-3, 3, 5), 'gamma': np.logspace(-2, 2, 5)},
+    # #                    scoring=make_scorer(precision_score), n_jobs=4)
+    # # clf.fit(X_train, y_train)
+    # # print('Mean accuracy {:.2f} (Best params: C={:.4e}, gamma={:.4e})'.format(
+    # #     clf.score(X_test, y_test), clf.best_params_['C'], clf.best_params_['gamma']))
+    # # joblib.dump(clf, 'clf_svm_rbf.pkl')
+    # clf = joblib.load('clf_svm_rbf.pkl')
     #
     # print('Processing test image...')
     # test_files = glob.glob(os.path.join(IMGDIR_TEST, '*.jpg'))
-    # img = cv2.cvtColor(cv2.imread(test_files[1]), cv2.COLOR_BGR2GRAY)
-    # windows = slide_window(img, y_start_stop=[400, 500], x_start_stop=[600, None], xy_overlap=(0.5, 0.5))
+    # img = cv2.cvtColor(cv2.imread(test_files[2]), cv2.COLOR_BGR2GRAY)
+    # windows = slide_window(img, y_start_stop=[400, 650], x_start_stop=[200, None], xy_overlap=(0.5, 0.5))
     # test_features = []
     # for win in windows:
     #     crop = img[win[0][1]:win[1][1], win[0][0]:win[1][0]]
     #     test_features.append(get_hog_features(crop, 9, 8, 2))
     # test_features = np.array(test_features)
+    #
     # # feature scaling
     # scaler = StandardScaler()
     # test_features_scaled = scaler.fit_transform(test_features)
@@ -661,12 +695,10 @@ if __name__ == '__main__':
     # fig, ax = plt.subplots(1, 1)
     # ax.imshow(img_boxes, cmap='gray')
     # plt.show()
-    #
-    # # pca_demo(car_list, noncar_list)
 
 
-    vd = VehicleDetector()
+    # vd = VehicleDetector()
     # out = vd.process_image(os.path.join(IMGDIR_TEST, 'test1.jpg'))
     # plt.imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
     # plt.show()
-    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=20, end_time=35)
+    # vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=20, end_time=35)
