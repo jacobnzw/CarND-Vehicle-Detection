@@ -26,7 +26,12 @@ class VehicleDetector:
     IMG_SHAPE = (720, 1280, 3)
     BASE_WIN_SHAPE = (64, 64)
     HEATMAP_BUFFER_LEN = 5  # combine heat-maps from HEATMAP_BUFFER_LEN past frames
-    HEATMAP_THRESHOLD = 3
+    HEATMAP_THRESHOLD = 4
+    ROI_SPECS = (
+        ((0, 380), (1280, 650), (128, 128)),
+        ((128, 380), (1152, 522), (96, 96)),
+        ((192, 380), (1088, 458), (64, 64)),
+    )
 
     def __init__(self):
         self.boxes = []  # list of bounding boxes pre-computed
@@ -42,9 +47,12 @@ class VehicleDetector:
 
         # pre-compute windows
         # list of windows from all depth levels
-        # TODO: define ROIs for several depths
-        self.windows = self._slide_window(y_start_stop=[400, 650],
-                                          x_start_stop=[200, None], xy_overlap=(0.5, 0.5))
+        self.windows = []
+        for rs in self.ROI_SPECS:
+            y_range = [rs[0][1], rs[1][1]]
+            x_range = [rs[0][0], rs[1][0]]
+            self.windows += self._slide_window(y_start_stop=y_range, x_start_stop=x_range,
+                                               xy_window=rs[2], xy_overlap=(0.5, 0.5))
 
         # pre-allocate blank image for speed
         self.img_blank = np.zeros(self.IMG_SHAPE[:2])
@@ -114,14 +122,15 @@ class VehicleDetector:
         return window_list
 
     def _extract_features(self, img_bgr):
+        # TODO: add switches for hog, color-hist and spatial-binning (raw pixels)
         features = []
         gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
         # histogram of oriented gradients
         features.append(self._get_hog_features(gray, 9, 8, 2))
         # color histograms
-        features.append(self._get_color_histogram_features(img_bgr))
+        # features.append(self._get_color_histogram_features(img_bgr))
         # raw pixel values
-        # features.append(self._get_raw_pixel_features(img_bgr, color_space='HLS', size=(32, 32)))
+        features.append(self._get_raw_pixel_features(img_bgr, color_space='BGR', size=(32, 32)))
 
         return np.concatenate(features)
 
@@ -151,7 +160,7 @@ class VehicleDetector:
 
         result = hog(img, orientations=orient, pixels_per_cell=(pix_per_cell, pix_per_cell),
                      cells_per_block=(cell_per_block, cell_per_block),
-                     block_norm='L2-Hys', transform_sqrt=False,
+                     block_norm='L2-Hys', transform_sqrt=True,
                      visualise=vis, feature_vector=feature_vec)
 
         # name returns explicitly
@@ -346,6 +355,7 @@ class VehicleDetector:
         noncar_list = noncar_files[:len(car_list)]
 
         # extract feature vectors from each image and create labels
+        print('Feature extraction ...')
         features = []
         labels = []
         for file in car_list:
@@ -366,6 +376,7 @@ class VehicleDetector:
         # save extracted features and labels, if outfile provided
         if outfile is not None:
             np.savez(outfile, features, labels, features=features, labels=labels)
+            print('Features saved in {}'.format(outfile))
         return features, labels
 
     def train_classifier(self, data_file=None, dump_file=None, diag=False):
@@ -405,6 +416,8 @@ class VehicleDetector:
             joblib.dump(self.classifier, 'clf_default')
             print('Classifier saved to clf_default.pkl')
 
+    def set_classifier(self, clf_file):
+        self.classifier = joblib.load(clf_file)
 
 # LABEL_CAR = 1
 # LABEL_NONCAR = 0
@@ -673,7 +686,6 @@ class VehicleDetector:
 
 
 if __name__ == '__main__':
-    data_file = 'data_hog-ch.npz'
 
     # print('Building features ...')
     # X, y = build_features(data_file)
@@ -731,9 +743,15 @@ if __name__ == '__main__':
     # ax.imshow(img_boxes)
     # plt.show()
 
+    # data_file = 'data_hog-bgr.npz'
     vd = VehicleDetector()
-    vd.train_classifier(data_file, diag=True)
-    out = vd.process_image(os.path.join(vd.IMGDIR_TEST, 'test1.jpg'))
+    # vd.build_features(data_file)
+    # vd.train_classifier(data_file, dump_file='linsvc_hog-bgr.pkl', diag=False)
+    vd.set_classifier('linsvc_hog-bgr.pkl')
+
+    test_files = glob.glob(os.path.join(vd.IMGDIR_TEST, '*.jpg'))
+    out = vd.process_image(test_files[2])
     plt.imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
     plt.show()
+
     # vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=20, end_time=35)
