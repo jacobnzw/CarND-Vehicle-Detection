@@ -26,17 +26,17 @@ class VehicleDetector:
     IMGDIR_TEST = 'test_images'
     IMG_SHAPE = (720, 1280, 3)
     BASE_WIN_SHAPE = (64, 64)
-    HEATMAP_BUFFER_LEN = 5  # combine heat-maps from HEATMAP_BUFFER_LEN past frames
+    HEATMAP_BUFFER_LEN = 10  # combine heat-maps from HEATMAP_BUFFER_LEN past frames
     HEATMAP_THRESHOLD = 3
     ROI_SPECS = (
         ((0, 380), (1280, 650), (128, 128)),
-        ((0, 380), (1280, 522), (96, 96)),
+        ((0, 380), (1280, 522), (64, 64)),
         ((0, 380), (1280, 458), (64, 64)),
     )
 
     def __init__(self):
         self.boxes = []  # list of bounding boxes pre-computed
-        self.classifier = None  # joblib.load('clf_svm_rbf.pkl')  # handle for storing a classifier
+        self.classifier = LinearSVC()  # handle for storing a classifier
         self.hm_buffer = deque(maxlen=self.HEATMAP_BUFFER_LEN)  # list of heat maps from several previous frames
         self.hm_weights = np.ones((self.HEATMAP_BUFFER_LEN, )) / self.HEATMAP_BUFFER_LEN
         # decay for weighted averaging of past heat-maps
@@ -58,7 +58,7 @@ class VehicleDetector:
                                                    xy_window=rs[2], xy_overlap=(0.5, 0.5)))
 
         # pre-allocate blank image for speed
-        self.img_blank = np.zeros(self.IMG_SHAPE[:2])
+        self.img_blank = np.zeros(self.IMG_SHAPE[:2], dtype=np.uint8)
 
     def _slide_window(self, x_start_stop=[None, None], y_start_stop=[None, None],
                       xy_window=(64, 64), xy_overlap=(0.5, 0.5)):
@@ -215,7 +215,8 @@ class VehicleDetector:
         self.hm_buffer.append(hm)
         if len(self.hm_buffer) == self.HEATMAP_BUFFER_LEN:
             # integrate heat-maps from past frames when the buffer fills up
-            hm = np.uint8(np.average(np.array(self.hm_buffer), axis=0, weights=self.hm_weights))
+            # hm = np.uint8(np.average(np.array(self.hm_buffer), axis=0, weights=self.hm_weights))
+            hm = np.sum(self.hm_buffer, axis=0)
 
         # threshold away "cool" detections
         hm[hm <= self.HEATMAP_THRESHOLD] = 0
@@ -250,13 +251,13 @@ class VehicleDetector:
         # feed image crops to the classifier
         y_pred = self.classifier.predict(X_test)
         # pick out boxes predicted as containing a car
-        car_boxes = [self.windows[i] for i in np.argwhere(y_pred == self.LABEL_CAR).squeeze()]
+        car_boxes = [self.windows[i] for i in np.argwhere(y_pred == self.LABEL_CAR)]
 
         # reduce false positives
-        # car_boxes = self._reduce_false_positives(car_boxes)
+        car_boxes = self._reduce_false_positives(car_boxes)
 
         # draw bounding boxes around detected cars
-        img_out = self._draw_boxes(img_bgr, car_boxes, thick=5)
+        img_out = self._draw_boxes(img_bgr, car_boxes, thick=3)
 
         return img_out
 
@@ -374,7 +375,6 @@ class VehicleDetector:
 
         print('Fitting classifier ...')
         if diag:  # do we wish to report performance for tunning?
-            self.classifier = LinearSVC()
             X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.7)
             self.classifier.fit(X_train, y_train)
             yp_train = self.classifier.predict(X_train)
@@ -385,7 +385,6 @@ class VehicleDetector:
                 accuracy_score(y_train, yp_train),
                 recall_score(y_train, yp_train), precision_score(y_train, yp_train)))
         else:
-            self.classifier = LinearSVC()
             self.classifier.fit(X, y)
 
         if dump_file is not None:
@@ -728,16 +727,17 @@ if __name__ == '__main__':
     data_file = 'data_hog-all-ch-ycc.pkl'
     clf_file = 'linsvc_hog-all-ch-ycc.pkl'
     vd = VehicleDetector()
-    vd.build_features(data_file)
-    vd.train_classifier(data_file, dump_file=clf_file, diag=True)
-    # vd.set_classifier(clf_file, data_file)
+    # vd.build_features(data_file)
+    # vd.classifier.set_params(C=1000)
+    # vd.train_classifier(data_file, dump_file=clf_file, diag=False)
+    vd.set_classifier(clf_file, data_file)
 
-    test_files = glob.glob(os.path.join(vd.IMGDIR_TEST, '*.jpg'))
-    fig, ax = plt.subplots(1, len(test_files))
-    for i in range(len(test_files)):
-        out = vd.process_image(test_files[i])
-        ax[i].imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
-    plt.show()
+    # test_files = glob.glob(os.path.join(vd.IMGDIR_TEST, '*.jpg'))
+    # fig, ax = plt.subplots(1, len(test_files))
+    # for i in range(len(test_files)):
+    #     out = vd.process_image(test_files[i])
+    #     ax[i].imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
+    # plt.show()
 
-    # vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=20, end_time=35)
+    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=25, end_time=35)
     # vd.process_video('test_video.mp4', outfile='test_video_processed.mp4')
