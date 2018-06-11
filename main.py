@@ -124,9 +124,12 @@ class VehicleDetector:
     def _extract_features(self, img_bgr):
         # TODO: add switches for hog, color-hist and spatial-binning (raw pixels)
         features = []
-        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+        # gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
         # histogram of oriented gradients
-        features.append(self._get_hog_features(gray, 9, 8, 2))
+        # features.append(self._get_hog_features(gray, 9, 8, 2))
+        features.append(self._get_hog_features(img_bgr[..., 0], 9, 8, 2))
+        features.append(self._get_hog_features(img_bgr[..., 1], 9, 8, 2))
+        features.append(self._get_hog_features(img_bgr[..., 2], 9, 8, 2))
         # color histograms
         # features.append(self._get_color_histogram_features(img_bgr))
         # raw pixel values
@@ -402,7 +405,6 @@ class VehicleDetector:
             print('Train accuracy {:.2f}, recall {:.2f}, precision {:.2f}'.format(
                 accuracy_score(y_train, yp_train),
                 recall_score(y_train, yp_train), precision_score(y_train, yp_train)))
-
         else:
             self.classifier = LinearSVC()
             self.classifier.fit(X, y)
@@ -414,7 +416,7 @@ class VehicleDetector:
         else:
             # dump classifier using default name
             joblib.dump(self.classifier, 'clf_default')
-            print('Classifier saved to clf_default.pkl')
+            print('Classifier saved to clf_default')
 
     def set_classifier(self, clf_file):
         self.classifier = joblib.load(clf_file)
@@ -743,11 +745,11 @@ if __name__ == '__main__':
     # ax.imshow(img_boxes)
     # plt.show()
 
-    # data_file = 'data_hog-bgr.npz'
+    data_file = 'data_hog-all-bgr.npz'
     vd = VehicleDetector()
     # vd.build_features(data_file)
-    # vd.train_classifier(data_file, dump_file='linsvc_hog-bgr.pkl', diag=False)
-    vd.set_classifier('linsvc_hog-bgr.pkl')
+    vd.train_classifier(data_file, dump_file='svc_hog-all-bgr.pkl', diag=True)
+    # vd.set_classifier('linsvc_hog-all-bgr.pkl')
 
     test_files = glob.glob(os.path.join(vd.IMGDIR_TEST, '*.jpg'))
     out = vd.process_image(test_files[2])
