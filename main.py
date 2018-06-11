@@ -51,8 +51,8 @@ class VehicleDetector:
         for rs in self.ROI_SPECS:
             y_range = [rs[0][1], rs[1][1]]
             x_range = [rs[0][0], rs[1][0]]
-            self.windows += self._slide_window(y_start_stop=y_range, x_start_stop=x_range,
-                                               xy_window=rs[2], xy_overlap=(0.5, 0.5))
+            self.windows.extend(self._slide_window(y_start_stop=y_range, x_start_stop=x_range,
+                                                   xy_window=rs[2], xy_overlap=(0.5, 0.5)))
 
         # pre-allocate blank image for speed
         self.img_blank = np.zeros(self.IMG_SHAPE[:2])
@@ -124,18 +124,16 @@ class VehicleDetector:
     def _extract_features(self, img_bgr):
         # TODO: add switches for hog, color-hist and spatial-binning (raw pixels)
         features = []
-        # gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+        img_con = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2YCrCb)
         # histogram of oriented gradients
-        # features.append(self._get_hog_features(gray, 9, 8, 2))
-        features.append(self._get_hog_features(img_bgr[..., 0], 9, 8, 2))
-        features.append(self._get_hog_features(img_bgr[..., 1], 9, 8, 2))
-        features.append(self._get_hog_features(img_bgr[..., 2], 9, 8, 2))
+        features.extend(self._get_hog_features(img_con[..., 0], 9, 8, 2))
+        features.extend(self._get_hog_features(img_con[..., 1], 9, 8, 2))
+        features.extend(self._get_hog_features(img_con[..., 2], 9, 8, 2))
         # color histograms
-        # features.append(self._get_color_histogram_features(img_bgr))
+        features.extend(self._get_color_histogram_features(img_bgr))
         # raw pixel values
-        features.append(self._get_raw_pixel_features(img_bgr, color_space='BGR', size=(32, 32)))
-
-        return np.concatenate(features)
+        features.extend(self._get_raw_pixel_features(img_bgr, size=(16, 16)))
+        return features
 
     def _get_hog_features(self, img, orient, pix_per_cell, cell_per_block, vis=False, feature_vec=True):
         """
@@ -163,7 +161,7 @@ class VehicleDetector:
 
         result = hog(img, orientations=orient, pixels_per_cell=(pix_per_cell, pix_per_cell),
                      cells_per_block=(cell_per_block, cell_per_block),
-                     block_norm='L2-Hys', transform_sqrt=True,
+                     transform_sqrt=False,
                      visualise=vis, feature_vector=feature_vec)
 
         # name returns explicitly
@@ -172,16 +170,14 @@ class VehicleDetector:
         else:
             return result
 
-    def _get_raw_pixel_features(self, img, color_space='BGR', size=(32, 32)):
+    def _get_raw_pixel_features(self, img, size=(32, 32)):
         """
         Feature vector of raw pixel values in given color space and resizing.
 
         Parameters
         ----------
         img :
-            BGR image
-        color_space : str {'BGR', 'HSV', 'HLS', 'LUV', 'YUV', 'YCrCb'}
-            Which color space convert the image to
+            image
         size : (int, int)
             Size of the resized image
 
@@ -190,31 +186,10 @@ class VehicleDetector:
 
         """
 
-        # Convert image to new color space (if specified)
-        if color_space != 'BGR':
-            if color_space == 'HSV':
-                feature_image = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-            elif color_space == 'LUV':
-                feature_image = cv2.cvtColor(img, cv2.COLOR_BGR2LUV)
-            elif color_space == 'HLS':
-                feature_image = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)
-            elif color_space == 'YUV':
-                feature_image = cv2.cvtColor(img, cv2.COLOR_BGR2YUV)
-            elif color_space == 'YCrCb':
-                feature_image = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)
-        else:
-            feature_image = np.copy(img)
+        return np.concatenate([cv2.resize(img[..., i], size).ravel() for i in range(img.shape[2])])
 
-        features = cv2.resize(feature_image, size).ravel()
-        return features
-
-    def _get_color_histogram_features(self, img_bgr, nbins=32, bins_range=(0, 256)):
-        # Compute the histogram of the RGB channels separately
-        bhist = np.histogram(img_bgr[:, :, 0], bins=nbins, range=bins_range)
-        ghist = np.histogram(img_bgr[:, :, 1], bins=nbins, range=bins_range)
-        rhist = np.histogram(img_bgr[:, :, 2], bins=nbins, range=bins_range)
-        # Concatenate the histograms into a single feature vector
-        return np.concatenate((bhist[0], ghist[0], rhist[0]))
+    def _get_color_histogram_features(self, img, nbins=32):
+        return np.concatenate([np.histogram(img[..., i], bins=nbins)[0] for i in range(img.shape[2])])
 
     def _draw_boxes(self, img_bgr, bboxes, color=(0, 0, 255), thick=2):
         # Make a copy of the image
@@ -265,20 +240,18 @@ class VehicleDetector:
         X_test = np.array(X_test)
 
         # feature normalization
-        X_test = self.scaler.fit_transform(X_test)
+        X_test = self.scaler.transform(X_test)
 
         # feed image crops to the classifier
         y_pred = self.classifier.predict(X_test)
         # pick out boxes predicted as containing a car
         car_boxes = [self.windows[i] for i in np.argwhere(y_pred == self.LABEL_CAR).squeeze()]
-        # noncar_boxes = [self.windows[i] for i in np.argwhere(y_pred == self.LABEL_NONCAR).squeeze()]
 
         # reduce false positives
         # car_boxes = self._reduce_false_positives(car_boxes)
 
         # draw bounding boxes around detected cars
         img_out = self._draw_boxes(img_bgr, car_boxes, thick=5)
-        # img_out = self._draw_boxes(img_out, noncar_boxes, color=(0, 255, 0), thick=1)
 
         return img_out
 
@@ -360,17 +333,18 @@ class VehicleDetector:
         # extract feature vectors from each image and create labels
         print('Feature extraction ...')
         features = []
-        labels = []
+        # labels = []
+        labels = np.concatenate((np.ones(len(car_list)), np.zeros(len(noncar_list))))
         for file in car_list:
             img = cv2.imread(file)
-            feat_hog = self._extract_features(img)
-            features.append(feat_hog)
-            labels.append(self.LABEL_CAR)
+            feat_vec = self._extract_features(img)
+            features.append(feat_vec)
+            # labels.append(self.LABEL_CAR)
         for file in noncar_list:
             img = cv2.imread(file)
-            feat_hog = self._extract_features(img)
-            features.append(feat_hog)
-            labels.append(self.LABEL_NONCAR)
+            feat_vec = self._extract_features(img)
+            features.append(feat_vec)
+            # labels.append(self.LABEL_NONCAR)
 
         # shuffle features and labels
         features, labels = shuffle(np.array(features), np.array(labels))
@@ -392,6 +366,8 @@ class VehicleDetector:
             # train using the standard data from build_features()
             print('Building features ...')
             X, y = self.build_features()
+
+        self.scaler.fit(X)
 
         print('Fitting classifier ...')
         if diag:  # do we wish to report performance for tunning?
@@ -418,8 +394,9 @@ class VehicleDetector:
             joblib.dump(self.classifier, 'clf_default')
             print('Classifier saved to clf_default')
 
-    def set_classifier(self, clf_file):
+    def set_classifier(self, clf_file, data_file):
         self.classifier = joblib.load(clf_file)
+        self.scaler.fit(np.load(data_file)['features'])
 
 # LABEL_CAR = 1
 # LABEL_NONCAR = 0
@@ -745,15 +722,18 @@ if __name__ == '__main__':
     # ax.imshow(img_boxes)
     # plt.show()
 
-    data_file = 'data_hog-all-bgr.npz'
+    data_file = 'data_hog-all-ch-ycc.npz'
+    clf_file = 'linsvc_hog-all-ch-ycc.pkl'
     vd = VehicleDetector()
     # vd.build_features(data_file)
-    vd.train_classifier(data_file, dump_file='svc_hog-all-bgr.pkl', diag=True)
-    # vd.set_classifier('linsvc_hog-all-bgr.pkl')
+    # vd.train_classifier(data_file, dump_file=clf_file, diag=True)
+    vd.set_classifier(clf_file, data_file)
 
     test_files = glob.glob(os.path.join(vd.IMGDIR_TEST, '*.jpg'))
-    out = vd.process_image(test_files[2])
-    plt.imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
+    fig, ax = plt.subplots(len(test_files), 1)
+    for i in range(len(test_files)):
+        out = vd.process_image(test_files[i])
+        ax[i].imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
     plt.show()
 
     # vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=20, end_time=35)
