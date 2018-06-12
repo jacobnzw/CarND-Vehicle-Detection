@@ -26,12 +26,12 @@ class VehicleDetector:
     IMGDIR_TEST = 'test_images'
     IMG_SHAPE = (720, 1280, 3)
     BASE_WIN_SHAPE = (64, 64)
-    HEATMAP_BUFFER_LEN = 10  # combine heat-maps from HEATMAP_BUFFER_LEN past frames
-    HEATMAP_THRESHOLD = 3
+    HEATMAP_BUFFER_LEN = 5  # combine heat-maps from HEATMAP_BUFFER_LEN past frames
+    HEATMAP_THRESHOLD = 6
     ROI_SPECS = (
-        ((0, 380), (1280, 650), (128, 128), (0.75, 0.75)),
-        ((0, 380), (1280, 522), (64, 64), (0.5, 0.5)),
-        ((0, 380), (1280, 458), (64, 64), (0.5, 0.5)),
+        ((0, 380), (1280, 650), (128, 128), (0.9, 0.25)),
+        ((0, 380), (1280, 522), (96, 96), (0.9, 0.25)),
+        ((0, 380), (1280, 458), (64, 64), (0.9, 0.25)),
     )
 
     def __init__(self):
@@ -410,12 +410,12 @@ if __name__ == '__main__':
     # vd.train_classifier(data_file, dump_file=clf_file, diag=False)
     vd.set_classifier(clf_file, data_file)
 
-    test_files = glob.glob(os.path.join(vd.IMGDIR_TEST, '*.jpg'))
-    fig, ax = plt.subplots(1, len(test_files))
-    for i in range(len(test_files)):
-        out = vd.process_image(test_files[i])
-        ax[i].imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
-    plt.show()
+    # test_files = glob.glob(os.path.join(vd.IMGDIR_TEST, '*.jpg'))
+    # fig, ax = plt.subplots(1, len(test_files))
+    # for i in range(len(test_files)):
+    #     out = vd.process_image(test_files[i])
+    #     ax[i].imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
+    # plt.show()
 
-    # vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=25, end_time=35)
+    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=30, end_time=None)
     # vd.process_video('test_video.mp4', outfile='test_video_processed.mp4')
