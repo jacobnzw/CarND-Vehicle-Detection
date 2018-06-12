@@ -29,9 +29,9 @@ class VehicleDetector:
     HEATMAP_BUFFER_LEN = 10  # combine heat-maps from HEATMAP_BUFFER_LEN past frames
     HEATMAP_THRESHOLD = 3
     ROI_SPECS = (
-        ((0, 380), (1280, 650), (128, 128)),
-        ((0, 380), (1280, 522), (64, 64)),
-        ((0, 380), (1280, 458), (64, 64)),
+        ((0, 380), (1280, 650), (128, 128), (0.75, 0.75)),
+        ((0, 380), (1280, 522), (64, 64), (0.5, 0.5)),
+        ((0, 380), (1280, 458), (64, 64), (0.5, 0.5)),
     )
 
     def __init__(self):
@@ -55,7 +55,7 @@ class VehicleDetector:
             y_range = [rs[0][1], rs[1][1]]
             x_range = [rs[0][0], rs[1][0]]
             self.windows.extend(self._slide_window(y_start_stop=y_range, x_start_stop=x_range,
-                                                   xy_window=rs[2], xy_overlap=(0.5, 0.5)))
+                                                   xy_window=rs[2], xy_overlap=rs[3]))
 
         # pre-allocate blank image for speed
         self.img_blank = np.zeros(self.IMG_SHAPE[:2], dtype=np.uint8)
@@ -410,12 +410,12 @@ if __name__ == '__main__':
     # vd.train_classifier(data_file, dump_file=clf_file, diag=False)
     vd.set_classifier(clf_file, data_file)
 
-    # test_files = glob.glob(os.path.join(vd.IMGDIR_TEST, '*.jpg'))
-    # fig, ax = plt.subplots(1, len(test_files))
-    # for i in range(len(test_files)):
-    #     out = vd.process_image(test_files[i])
-    #     ax[i].imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
-    # plt.show()
+    test_files = glob.glob(os.path.join(vd.IMGDIR_TEST, '*.jpg'))
+    fig, ax = plt.subplots(1, len(test_files))
+    for i in range(len(test_files)):
+        out = vd.process_image(test_files[i])
+        ax[i].imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
+    plt.show()
 
-    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=25, end_time=35)
+    # vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=25, end_time=35)
     # vd.process_video('test_video.mp4', outfile='test_video_processed.mp4')
