@@ -28,10 +28,15 @@ class VehicleDetector:
     BASE_WIN_SHAPE = (64, 64)
     HEATMAP_BUFFER_LEN = 5  # combine heat-maps from HEATMAP_BUFFER_LEN past frames
     HEATMAP_THRESHOLD = 6
+    # ROI_SPECS = (
+    #     ((0, 380), (1280, 650), (128, 128), (0.9, 0.25)),
+    #     ((0, 380), (1280, 522), (96, 96), (0.9, 0.25)),
+    #     ((0, 380), (1280, 458), (64, 64), (0.9, 0.25)),
+    # )
     ROI_SPECS = (
-        ((0, 380), (1280, 650), (128, 128), (0.9, 0.25)),
-        ((0, 380), (1280, 522), (96, 96), (0.9, 0.25)),
-        ((0, 380), (1280, 458), (64, 64), (0.9, 0.25)),
+        ((10, 400), (1280, 640), (128, 128), (0.75, 0.75)),
+        ((200, 400), (1230, 500), (64, 64), (0.5, 0.5)),
+        ((440, 400), (980, 480), (64, 64), (0.5, 0.5)),
     )
 
     def __init__(self):
@@ -218,8 +223,8 @@ class VehicleDetector:
             # hm = np.uint8(np.average(np.array(self.hm_buffer), axis=0, weights=self.hm_weights))
             hm = np.sum(self.hm_buffer, axis=0)
 
-        # threshold away "cool" detections
-        hm[hm <= self.HEATMAP_THRESHOLD] = 0
+            # threshold away "cool" detections
+            hm[hm <= self.HEATMAP_THRESHOLD] = 0
         # identify connected components
         img_labeled, num_objects = label(hm)
 
@@ -251,7 +256,7 @@ class VehicleDetector:
         # feed image crops to the classifier
         y_pred = self.classifier.predict(X_test)
         # pick out boxes predicted as containing a car
-        car_boxes = [self.windows[i] for i in np.argwhere(y_pred == self.LABEL_CAR)]
+        car_boxes = [self.windows[i] for i in np.argwhere(y_pred == self.LABEL_CAR)[:, 0]]
 
         # reduce false positives
         car_boxes = self._reduce_false_positives(car_boxes)
@@ -417,5 +422,5 @@ if __name__ == '__main__':
     #     ax[i].imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
     # plt.show()
 
-    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=30, end_time=None)
-    # vd.process_video('test_video.mp4', outfile='test_video_processed.mp4')
+    # vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=30, end_time=None)
+    vd.process_video('test_video.mp4', outfile='test_video_processed.mp4')
