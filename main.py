@@ -27,26 +27,25 @@ class VehicleDetector:
     IMG_SHAPE = (720, 1280, 3)
     BASE_WIN_SHAPE = (64, 64)
     HEATMAP_BUFFER_LEN = 5  # combine heat-maps from HEATMAP_BUFFER_LEN past frames
-    HEATMAP_THRESHOLD = 6
+    HEATMAP_THRESHOLD = 8
     # ROI_SPECS = (
     #     ((0, 380), (1280, 650), (128, 128), (0.9, 0.25)),
     #     ((0, 380), (1280, 522), (96, 96), (0.9, 0.25)),
     #     ((0, 380), (1280, 458), (64, 64), (0.9, 0.25)),
     # )
     ROI_SPECS = (
-        ((10, 400), (1280, 640), (128, 128), (0.75, 0.75)),
-        ((200, 400), (1230, 500), (64, 64), (0.5, 0.5)),
-        ((440, 400), (980, 480), (64, 64), (0.5, 0.5)),
+        ((200, 400), (1280, 656), (128, 128), (0.75, 0.75)),
+        ((200, 400), (1280, 656), (64, 64), (0.75, 0.75)),
     )
 
     def __init__(self):
         self.boxes = []  # list of bounding boxes pre-computed
         self.classifier = LinearSVC()  # handle for storing a classifier
         self.hm_buffer = deque(maxlen=self.HEATMAP_BUFFER_LEN)  # list of heat maps from several previous frames
-        self.hm_weights = np.ones((self.HEATMAP_BUFFER_LEN, )) / self.HEATMAP_BUFFER_LEN
+        # self.hm_weights = np.ones((self.HEATMAP_BUFFER_LEN, )) / self.HEATMAP_BUFFER_LEN
         # decay for weighted averaging of past heat-maps
-        # self.hm_weights = np.array([(1-1/self.HEATMAP_BUFFER_LEN)**i for i in range(self.HEATMAP_BUFFER_LEN)])
-        # self.hm_weights /= self.hm_weights.sum()
+        self.hm_weights = np.array([(1-1/self.HEATMAP_BUFFER_LEN)**i for i in range(self.HEATMAP_BUFFER_LEN)])
+        self.hm_weights /= self.hm_weights.sum()
 
         # standard feature scaler
         self.scaler = StandardScaler()
@@ -128,6 +127,77 @@ class VehicleDetector:
                 window_list.append(((startx, starty), (endx, endy)))
         # Return the list of windows
         return window_list
+
+    def _find_cars(self, img, ystart, ystop, scale):
+        orient = 9
+        pix_per_cell = 8
+        cell_per_block = 2
+        spatial_size = (32, 32)
+        hist_bins = 32
+
+        on_windows = []
+        # img = img.astype(np.float32) / 255
+
+        img_tosearch = img[ystart:ystop, :, :]
+        ctrans_tosearch = img_tosearch
+
+        if scale != 1:
+            imshape = ctrans_tosearch.shape
+            ctrans_tosearch = cv2.resize(ctrans_tosearch, (np.int(imshape[1] / scale), np.int(imshape[0] / scale)))
+
+        ch1 = ctrans_tosearch[:, :, 0]
+        ch2 = ctrans_tosearch[:, :, 1]
+        ch3 = ctrans_tosearch[:, :, 2]
+
+        # Define blocks and steps as above, hold the number of hog cells
+        nxblocks = (ch1.shape[1] // pix_per_cell) - 1
+        nyblocks = (ch1.shape[0] // pix_per_cell) - 1
+        nfeat_per_block = orient * cell_per_block ** 2
+
+        # 64 was the orginal sampling rate, with 8 cells and 8 pix per cell
+        window = 64
+        nblocks_per_window = (window // pix_per_cell) - 1
+        cells_per_step = 2  # Instead of overlap, define how many cells to step: there are 8 cells, and move 2 cells per step, 75% overlap
+        nxsteps = (nxblocks - nblocks_per_window) // cells_per_step
+        nysteps = (nyblocks - nblocks_per_window) // cells_per_step
+
+        # Compute individual channel HOG features for the entire image
+        hog1 = self._get_hog_features(ch1, orient, pix_per_cell, cell_per_block, feature_vec=False)
+        hog2 = self._get_hog_features(ch2, orient, pix_per_cell, cell_per_block, feature_vec=False)
+        hog3 = self._get_hog_features(ch3, orient, pix_per_cell, cell_per_block, feature_vec=False)
+
+        for xb in range(nxsteps):
+            for yb in range(nysteps):
+                ypos = yb * cells_per_step
+                xpos = xb * cells_per_step
+
+                hog_feat1 = hog1[ypos:ypos + nblocks_per_window, xpos:xpos + nblocks_per_window].ravel()
+                hog_feat2 = hog2[ypos:ypos + nblocks_per_window, xpos:xpos + nblocks_per_window].ravel()
+                hog_feat3 = hog3[ypos:ypos + nblocks_per_window, xpos:xpos + nblocks_per_window].ravel()
+                hog_features = np.hstack((hog_feat1, hog_feat2, hog_feat3))
+
+                xleft = xpos * pix_per_cell
+                ytop = ypos * pix_per_cell
+
+                # Extract the image patch
+                subimg = cv2.resize(ctrans_tosearch[ytop:ytop + window, xleft:xleft + window], (64, 64))
+                # Get color features
+                spatial_features = self._get_raw_pixel_features(subimg, size=spatial_size)
+                hist_features = self._get_color_histogram_features(subimg, nbins=hist_bins)
+
+                # put together a feature vector, normalize and predict
+                X = np.hstack((hog_features, hist_features, spatial_features)).reshape(1, -1)
+                test_features = self.scaler.transform(X)
+                test_prediction = self.classifier.predict(test_features)
+
+                if test_prediction == 1:  # does the window contain a car?
+                    xbox_left = np.int(xleft * scale)
+                    ytop_draw = np.int(ytop * scale)
+                    win_draw = np.int(window * scale)
+                    on_windows.append(((xbox_left, ytop_draw + ystart),
+                                       (xbox_left + win_draw, ytop_draw + win_draw + ystart)))
+
+        return on_windows
 
     def _extract_features(self, img_bgr, hog=True, color_hist=True, raw_pix=True):
         features = []
@@ -248,6 +318,7 @@ class VehicleDetector:
             crop = img_bgr[win[0][1]:win[1][1], win[0][0]:win[1][0]]
             crop = cv2.resize(crop, self.BASE_WIN_SHAPE)
             X_test.append(self._extract_features(crop))
+            # X_test[i, :] = self._extract_features(crop)
         X_test = np.array(X_test)
 
         # feature normalization
@@ -257,6 +328,9 @@ class VehicleDetector:
         y_pred = self.classifier.predict(X_test)
         # pick out boxes predicted as containing a car
         car_boxes = [self.windows[i] for i in np.argwhere(y_pred == self.LABEL_CAR)[:, 0]]
+
+        # car_boxes = self._find_cars(img_bgr, 400, 656, 1.0)
+        # car_boxes.extend(self._find_cars(img_bgr, 400, 656, 2.0))
 
         # reduce false positives
         car_boxes = self._reduce_false_positives(car_boxes)
