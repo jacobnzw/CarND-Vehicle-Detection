@@ -26,8 +26,8 @@ class VehicleDetector:
     IMGDIR_TEST = 'test_images'
     IMG_SHAPE = (720, 1280, 3)
     BASE_WIN_SHAPE = (64, 64)
-    HEATMAP_BUFFER_LEN = 5  # combine heat-maps from HEATMAP_BUFFER_LEN past frames
-    HEATMAP_THRESHOLD = 8
+    HEATMAP_BUFFER_LEN = 3  # combine heat-maps from HEATMAP_BUFFER_LEN past frames
+    HEATMAP_THRESHOLD = 12
     # ROI_SPECS = (
     #     ((0, 380), (1280, 650), (128, 128), (0.9, 0.25)),
     #     ((0, 380), (1280, 522), (96, 96), (0.9, 0.25)),
@@ -35,7 +35,7 @@ class VehicleDetector:
     # )
     ROI_SPECS = (
         ((200, 400), (1280, 656), (128, 128), (0.75, 0.75)),
-        ((200, 400), (1280, 656), (64, 64), (0.75, 0.75)),
+        ((200, 400), (1280, 556), (64, 64), (0.75, 0.75)),
     )
 
     def __init__(self):
@@ -265,7 +265,6 @@ class VehicleDetector:
         -------
 
         """
-
         return np.concatenate([cv2.resize(img[..., i], size).ravel() for i in range(img.shape[2])])
 
     def _get_color_histogram_features(self, img, nbins=32):
@@ -311,26 +310,27 @@ class VehicleDetector:
     def _process_frame(self, img_bgr):
         # vehicle detection pipeline
 
-        # get image crops for all depths
-        # extract features for all image crops
-        X_test = []
-        for win in self.windows:
-            crop = img_bgr[win[0][1]:win[1][1], win[0][0]:win[1][0]]
-            crop = cv2.resize(crop, self.BASE_WIN_SHAPE)
-            X_test.append(self._extract_features(crop))
-            # X_test[i, :] = self._extract_features(crop)
-        X_test = np.array(X_test)
+        # # get image crops for all depths
+        # # extract features for all image crops
+        # X_test = []
+        # for win in self.windows:
+        #     crop = img_bgr[win[0][1]:win[1][1], win[0][0]:win[1][0]]
+        #     crop = cv2.resize(crop, self.BASE_WIN_SHAPE)
+        #     X_test.append(self._extract_features(crop))
+        #     # X_test[i, :] = self._extract_features(crop)
+        # X_test = np.array(X_test)
+        #
+        # # feature normalization
+        # X_test = self.scaler.transform(X_test)
+        #
+        # # feed image crops to the classifier
+        # y_pred = self.classifier.predict(X_test)
+        # # pick out boxes predicted as containing a car
+        # car_boxes = [self.windows[i] for i in np.argwhere(y_pred == self.LABEL_CAR)[:, 0]]
 
-        # feature normalization
-        X_test = self.scaler.transform(X_test)
-
-        # feed image crops to the classifier
-        y_pred = self.classifier.predict(X_test)
-        # pick out boxes predicted as containing a car
-        car_boxes = [self.windows[i] for i in np.argwhere(y_pred == self.LABEL_CAR)[:, 0]]
-
-        # car_boxes = self._find_cars(img_bgr, 400, 656, 1.0)
-        # car_boxes.extend(self._find_cars(img_bgr, 400, 656, 2.0))
+        # alternative: using HOG subsampling
+        car_boxes = self._find_cars(img_bgr, 400, 656, 2.0)
+        car_boxes.extend(self._find_cars(img_bgr, 400, 556, 1.5))
 
         # reduce false positives
         car_boxes = self._reduce_false_positives(car_boxes)
@@ -489,12 +489,15 @@ if __name__ == '__main__':
     # vd.train_classifier(data_file, dump_file=clf_file, diag=False)
     vd.set_classifier(clf_file, data_file)
 
-    # test_files = glob.glob(os.path.join(vd.IMGDIR_TEST, '*.jpg'))
-    # fig, ax = plt.subplots(1, len(test_files))
-    # for i in range(len(test_files)):
-    #     out = vd.process_image(test_files[i])
-    #     ax[i].imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
-    # plt.show()
+    # TODO: reorder features to raw_pixels, color_hist, hog
+    # TODO: with classifier save also feature parameters
+    # TODO: start alternative implementation from scratch; copy the code from Udacity
+    test_files = glob.glob(os.path.join(vd.IMGDIR_TEST, '*.jpg'))
+    fig, ax = plt.subplots(1, len(test_files))
+    for i in range(len(test_files)):
+        out = vd.process_image(test_files[i])
+        ax[i].imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
+    plt.show()
 
     # vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=30, end_time=None)
-    vd.process_video('test_video.mp4', outfile='test_video_processed.mp4')
+    # vd.process_video('test_video.mp4', outfile='test_video_processed.mp4')
