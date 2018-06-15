@@ -492,12 +492,14 @@ if __name__ == '__main__':
     # TODO: reorder features to raw_pixels, color_hist, hog
     # TODO: with classifier save also feature parameters
     # TODO: start alternative implementation from scratch; copy the code from Udacity
-    test_files = glob.glob(os.path.join(vd.IMGDIR_TEST, '*.jpg'))
-    fig, ax = plt.subplots(1, len(test_files))
-    for i in range(len(test_files)):
-        out = vd.process_image(test_files[i])
-        ax[i].imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
-    plt.show()
+    # test_files = glob.glob(os.path.join(vd.IMGDIR_TEST, '*.jpg'))
+    # fig, ax = plt.subplots(1, len(test_files))
+    # for i in range(len(test_files)):
+    #     out = vd.process_image(test_files[i])
+    #     ax[i].imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
+    # plt.show()
 
     # vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=30, end_time=None)
-    # vd.process_video('test_video.mp4', outfile='test_video_processed.mp4')
+    vd.process_video('test_video.mp4', outfile='test_video_processed.mp4')
+
+    # NOTE: feature ordering really has an effect!
