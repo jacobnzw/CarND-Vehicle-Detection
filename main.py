@@ -139,7 +139,7 @@ class VehicleDetector:
         # img = img.astype(np.float32) / 255
 
         img_tosearch = img[ystart:ystop, :, :]
-        ctrans_tosearch = img_tosearch
+        ctrans_tosearch = cv2.cvtColor(img_tosearch, cv2.COLOR_RGB2YCrCb)
 
         if scale != 1:
             imshape = ctrans_tosearch.shape
@@ -307,7 +307,7 @@ class VehicleDetector:
 
         return car_boxes
 
-    def _process_frame(self, img_bgr):
+    def _process_frame(self, img_rgb):
         # vehicle detection pipeline
 
         # # get image crops for all depths
@@ -329,14 +329,14 @@ class VehicleDetector:
         # car_boxes = [self.windows[i] for i in np.argwhere(y_pred == self.LABEL_CAR)[:, 0]]
 
         # alternative: using HOG subsampling
-        car_boxes = self._find_cars(img_bgr, 400, 656, 2.0)
-        car_boxes.extend(self._find_cars(img_bgr, 400, 556, 1.5))
+        car_boxes = self._find_cars(img_rgb, 400, 656, 2.0)
+        car_boxes.extend(self._find_cars(img_rgb, 400, 556, 1.5))
 
         # reduce false positives
         car_boxes = self._reduce_false_positives(car_boxes)
 
         # draw bounding boxes around detected cars
-        img_out = self._draw_boxes(img_bgr, car_boxes, thick=3)
+        img_out = self._draw_boxes(img_rgb, car_boxes, thick=3)
 
         return img_out
 
@@ -454,7 +454,7 @@ class VehicleDetector:
 
         print('Fitting classifier ...')
         if diag:  # do we wish to report performance for tunning?
-            X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.7)
+            X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8)
             self.classifier.fit(X_train, y_train)
             yp_train = self.classifier.predict(X_train)
             yp_test = self.classifier.predict(X_test)
@@ -486,7 +486,7 @@ if __name__ == '__main__':
     vd = VehicleDetector()
     # vd.build_features(data_file)
     # vd.classifier.set_params(C=1000)
-    # vd.train_classifier(data_file, dump_file=clf_file, diag=False)
+    # vd.train_classifier(data_file, dump_file=clf_file, diag=True)
     vd.set_classifier(clf_file, data_file)
 
     # TODO: reorder features to raw_pixels, color_hist, hog
@@ -499,7 +499,7 @@ if __name__ == '__main__':
     #     ax[i].imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
     # plt.show()
 
-    # vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=30, end_time=None)
-    vd.process_video('test_video.mp4', outfile='test_video_processed.mp4')
+    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=30, end_time=None)
+    # vd.process_video('test_video.mp4', outfile='test_video_processed.mp4')
 
     # NOTE: feature ordering really has an effect!
