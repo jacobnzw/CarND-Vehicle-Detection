@@ -1,8 +1,9 @@
 import numpy as np
-from sklearn.utils import shuffle
+import sklearn.utils
 from sklearn.preprocessing import StandardScaler
 from skimage.feature import hog
 import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
 import cv2
 import os
 import glob
@@ -136,10 +137,10 @@ class VehicleDetector:
         hist_bins = 32
 
         on_windows = []
-        # img = img.astype(np.float32) / 255
+        img = img.astype(np.float32) / 255
 
         img_tosearch = img[ystart:ystop, :, :]
-        ctrans_tosearch = img_tosearch
+        ctrans_tosearch = cv2.cvtColor(img_tosearch, cv2.COLOR_RGB2YCrCb)
 
         if scale != 1:
             imshape = ctrans_tosearch.shape
@@ -186,7 +187,7 @@ class VehicleDetector:
                 hist_features = self._get_color_histogram_features(subimg, nbins=hist_bins)
 
                 # put together a feature vector, normalize and predict
-                X = np.hstack((hog_features, hist_features, spatial_features)).reshape(1, -1)
+                X = np.hstack((spatial_features, hist_features, hog_features)).reshape(1, -1)
                 test_features = self.scaler.transform(X)
                 test_prediction = self.classifier.predict(test_features)
 
@@ -199,20 +200,20 @@ class VehicleDetector:
 
         return on_windows
 
-    def _extract_features(self, img_bgr, hog=True, color_hist=True, raw_pix=True):
+    def _extract_features(self, img_rgb, hog=True, color_hist=True, raw_pix=True):
         features = []
-        img_con = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2YCrCb)
+        img_con = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2YCrCb)
+        if raw_pix:
+            # raw pixel values
+            features.extend(self._get_raw_pixel_features(img_con, size=(32, 32)))
+        if color_hist:
+            # color histograms
+            features.extend(self._get_color_histogram_features(img_con))
         if hog:
             # histogram of oriented gradients
             features.extend(self._get_hog_features(img_con[..., 0], 9, 8, 2))
             features.extend(self._get_hog_features(img_con[..., 1], 9, 8, 2))
             features.extend(self._get_hog_features(img_con[..., 2], 9, 8, 2))
-        if color_hist:
-            # color histograms
-            features.extend(self._get_color_histogram_features(img_con))
-        if raw_pix:
-            # raw pixel values
-            features.extend(self._get_raw_pixel_features(img_con, size=(32, 32)))
         return features
 
     def _get_hog_features(self, img, orient, pix_per_cell, cell_per_block, vis=False, feature_vec=True):
@@ -241,8 +242,7 @@ class VehicleDetector:
 
         result = hog(img, orientations=orient, pixels_per_cell=(pix_per_cell, pix_per_cell),
                      cells_per_block=(cell_per_block, cell_per_block),
-                     block_norm='L2-Hys', transform_sqrt=True,
-                     visualise=vis, feature_vector=feature_vec)
+                     transform_sqrt=True, visualise=vis, feature_vector=feature_vec)
 
         # name returns explicitly
         if vis:
@@ -307,7 +307,7 @@ class VehicleDetector:
 
         return car_boxes
 
-    def _process_frame(self, img_bgr):
+    def _process_frame(self, img_rgb):
         # vehicle detection pipeline
 
         # # get image crops for all depths
@@ -329,14 +329,14 @@ class VehicleDetector:
         # car_boxes = [self.windows[i] for i in np.argwhere(y_pred == self.LABEL_CAR)[:, 0]]
 
         # alternative: using HOG subsampling
-        car_boxes = self._find_cars(img_bgr, 400, 656, 2.0)
-        car_boxes.extend(self._find_cars(img_bgr, 400, 556, 1.5))
+        car_boxes = self._find_cars(img_rgb, 400, 556, 1.5)
+        car_boxes.extend(self._find_cars(img_rgb, 400, 656, 2.0))
 
         # reduce false positives
         car_boxes = self._reduce_false_positives(car_boxes)
 
         # draw bounding boxes around detected cars
-        img_out = self._draw_boxes(img_bgr, car_boxes, thick=3)
+        img_out = self._draw_boxes(img_rgb, car_boxes, thick=3)
 
         return img_out
 
@@ -392,44 +392,30 @@ class VehicleDetector:
         return out_clip
 
     def build_features(self, outfile=None, hog=True, color_hist=True, raw_pix=True):
-        # # make lists of file names for cars and non-cars
-        # car_left = glob.glob(os.path.join('vehicles', 'GTI_Left', '*.png'))
-        # car_right = glob.glob(os.path.join('vehicles', 'GTI_Right', '*.png'))
-        # car_close = glob.glob(os.path.join('vehicles', 'GTI_MiddleClose', '*.png'))
-        # car_far = glob.glob(os.path.join('vehicles', 'GTI_Far', '*.png'))
-        # car_kitti = glob.glob(os.path.join('vehicles', 'KITTI_extracted', '*.png'))
-        # # randomly choose equal number of images from left, right, middle-close and far directories
-        # num_carsmp = 400
-        # np.random.shuffle(car_left)
-        # np.random.shuffle(car_right)
-        # np.random.shuffle(car_close)
-        # np.random.shuffle(car_far)
-        # np.random.shuffle(car_kitti)
-        # # combine into one car list
-        # car_list = car_left[:num_carsmp] + car_right[:num_carsmp] + car_close[:num_carsmp] + \
-        #            car_far[:num_carsmp] + car_kitti
+        # get file names for cars and non-cars
         car_list = glob.glob(os.path.join('vehicles', '*', '*.png'))
-
-        # list of noncars same length as list of cars
-        noncar_files = glob.glob(os.path.join('non-vehicles', '*', '*.png'))
-        np.random.shuffle(noncar_files)
-        noncar_list = noncar_files[:len(car_list)]
+        noncar_list = glob.glob(os.path.join('non-vehicles', '*', '*.png'))
+        np.random.shuffle(car_list)
+        np.random.shuffle(noncar_list)
+        # take the same amount of cars and non-cars
+        half_len = min(len(car_list), len(noncar_list))
+        car_list, noncar_list = car_list[:half_len], noncar_list[:half_len]
 
         # extract feature vectors from each image and create labels
         print('Feature extraction ...')
         features = []
         labels = np.concatenate((np.ones(len(car_list)), np.zeros(len(noncar_list))))
         for file in car_list:
-            img = cv2.imread(file)
+            img = mpimg.imread(file)
             feat_vec = self._extract_features(img, hog, color_hist, raw_pix)
             features.append(feat_vec)
         for file in noncar_list:
-            img = cv2.imread(file)
+            img = mpimg.imread(file)
             feat_vec = self._extract_features(img, hog, color_hist, raw_pix)
             features.append(feat_vec)
 
         # shuffle features and labels
-        features, labels = shuffle(np.array(features), np.array(labels))
+        features, labels = sklearn.utils.shuffle(np.array(features), np.array(labels))
         # feature normalization
         self.scaler.fit(features)
         features = self.scaler.transform(features)
@@ -454,7 +440,7 @@ class VehicleDetector:
 
         print('Fitting classifier ...')
         if diag:  # do we wish to report performance for tunning?
-            X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.7)
+            X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8)
             self.classifier.fit(X_train, y_train)
             yp_train = self.classifier.predict(X_train)
             yp_test = self.classifier.predict(X_test)
@@ -485,13 +471,14 @@ if __name__ == '__main__':
     clf_file = 'linsvc_hog-all-ch-ycc.pkl'
     vd = VehicleDetector()
     # vd.build_features(data_file)
-    # vd.classifier.set_params(C=1000)
-    # vd.train_classifier(data_file, dump_file=clf_file, diag=False)
+    # vd.train_classifier(data_file, dump_file=clf_file, diag=True)
     vd.set_classifier(clf_file, data_file)
 
-    # TODO: reorder features to raw_pixels, color_hist, hog
+    # file = joblib.load('clf_pickle_all_v1.p')
+    # vd.classifier = file['svc']
+    # vd.scaler = file['scaler']
+
     # TODO: with classifier save also feature parameters
-    # TODO: start alternative implementation from scratch; copy the code from Udacity
     # test_files = glob.glob(os.path.join(vd.IMGDIR_TEST, '*.jpg'))
     # fig, ax = plt.subplots(1, len(test_files))
     # for i in range(len(test_files)):
