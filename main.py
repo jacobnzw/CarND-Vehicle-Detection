@@ -425,6 +425,41 @@ class VehicleDetector:
             out_clip.write_videofile(outfile, audio=False)
         return out_clip
 
+    def video_frames_visualization(self):
+        infile = 'project_video.mp4'
+        start_time, end_time = 41, None
+        clip = VideoFileClip(infile).subclip(start_time, end_time)
+        # y_start, y_stop, scale configurations
+        configs = [[400, 556, 1.5], [400, 656, 2.0], [400, 496, 1.0]]
+        hmaps = []
+        fproc = []
+        for idx, frame in enumerate(clip.iter_frames()):
+            if idx > 5:  # only few frames is sufficient
+                break
+            car_boxes = []
+            box_confidences = []
+            for config in configs:
+                boxes, c = self._find_cars(frame, *config)
+                car_boxes.extend(boxes)
+                box_confidences.extend(c)
+            # draw bounding boxes around detected cars
+            fproc.append(self._draw_boxes(frame, car_boxes, thick=3))
+            # reduce false positives
+            car_boxes, heat_map = self._reduce_false_positives(car_boxes, box_confidences)
+            heat_map = plt.get_cmap('hot')(heat_map/heat_map.max())[..., :3]
+            hmaps.append(heat_map)
+        fig, ax = plt.subplots(5, 2)
+        for i in range(5):
+            ax[i, 0].imshow(fproc[i])
+            ax[i, 1].imshow(hmaps[i])
+        ax[0, 0].set_title('Frames')
+        ax[0, 1].set_title('Heatmap')
+        plt.subplots_adjust(wspace=0)
+        plt.show()
+
+        # cv2.imwrite('frame_{:d}'.format(idx), img_out)
+        # cv2.imwrite('heatmap_{:d}'.format(idx), heat_map)
+
     def build_features(self, outfile=None, hog=True, color_hist=True, raw_pix=True):
         # get file names for cars and non-cars
         car_list = glob.glob(os.path.join('vehicles', '*', '*.png'))
@@ -509,15 +544,22 @@ if __name__ == '__main__':
     # vd.train_classifier(data_file, dump_file=clf_file, diag=True)
     vd.set_classifier(clf_file, data_file)
 
-    # TODO: with classifier save also feature parameters
+    # process some test images
     # test_files = glob.glob(os.path.join(vd.IMGDIR_TEST, '*.jpg'))
-    # fig, ax = plt.subplots(1, len(test_files))
-    # for i in range(len(test_files)):
-    #     out = vd.process_image(test_files[i])
-    #     ax[i].imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
+    # test_files = [test_files[i] for i in [1, 2, 5, 7]]
+    # out = []
+    # for file in test_files:
+    #     out.append(vd.process_image(file))
+    # fig, ax = plt.subplots(2, 2)
+    # ax[0, 0].imshow(cv2.cvtColor(out[0], cv2.COLOR_BGR2RGB))
+    # ax[0, 1].imshow(cv2.cvtColor(out[1], cv2.COLOR_BGR2RGB))
+    # ax[1, 0].imshow(cv2.cvtColor(out[2], cv2.COLOR_BGR2RGB))
+    # ax[1, 1].imshow(cv2.cvtColor(out[3], cv2.COLOR_BGR2RGB))
     # plt.show()
 
-    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=0, end_time=None)
+    # process video
+    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=40, end_time=None)
     # vd.process_video('test_video.mp4', outfile='test_video_processed.mp4')
 
-    # NOTE: feature ordering really has an effect!
+    # some visualizations
+    # vd.video_frames_visualization()
