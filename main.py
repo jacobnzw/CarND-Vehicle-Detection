@@ -27,8 +27,8 @@ class VehicleDetector:
     IMGDIR_TEST = 'test_images'
     IMG_SHAPE = (720, 1280, 3)
     BASE_WIN_SHAPE = (64, 64)
-    HEATMAP_BUFFER_LEN = 3  # combine heat-maps from HEATMAP_BUFFER_LEN past frames
-    HEATMAP_THRESHOLD = 12
+    HEATMAP_BUFFER_LEN = 10  # combine heat-maps from HEATMAP_BUFFER_LEN past frames
+    HEATMAP_THRESHOLD = 8
     # ROI_SPECS = (
     #     ((0, 380), (1280, 650), (128, 128), (0.9, 0.25)),
     #     ((0, 380), (1280, 522), (96, 96), (0.9, 0.25)),
@@ -45,8 +45,8 @@ class VehicleDetector:
         self.hm_buffer = deque(maxlen=self.HEATMAP_BUFFER_LEN)  # list of heat maps from several previous frames
         # self.hm_weights = np.ones((self.HEATMAP_BUFFER_LEN, )) / self.HEATMAP_BUFFER_LEN
         # decay for weighted averaging of past heat-maps
-        self.hm_weights = np.array([(1-1/self.HEATMAP_BUFFER_LEN)**i for i in range(self.HEATMAP_BUFFER_LEN)])
-        self.hm_weights /= self.hm_weights.sum()
+        self.hm_weights = np.array([(1-2/(self.HEATMAP_BUFFER_LEN))**i for i in range(self.HEATMAP_BUFFER_LEN)])
+        # self.hm_weights /= self.hm_weights.sum()
 
         # standard feature scaler
         self.scaler = StandardScaler()
@@ -293,7 +293,8 @@ class VehicleDetector:
             hm = np.sum(self.hm_buffer, axis=0)
 
             # threshold away "cool" detections
-            hm[hm <= self.HEATMAP_THRESHOLD] = 0
+            threshold = hm.max() - 8.0*self.HEATMAP_BUFFER_LEN
+            hm[hm <= threshold] = 0
         # identify connected components
         img_labeled, num_objects = label(hm)
 
@@ -331,6 +332,7 @@ class VehicleDetector:
         # alternative: using HOG subsampling
         car_boxes = self._find_cars(img_rgb, 400, 556, 1.5)
         car_boxes.extend(self._find_cars(img_rgb, 400, 656, 2.0))
+        # car_boxes.extend(self._find_cars(img_rgb, 400, 656, 2.5))
 
         # reduce false positives
         car_boxes = self._reduce_false_positives(car_boxes)
@@ -486,7 +488,7 @@ if __name__ == '__main__':
     #     ax[i].imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
     # plt.show()
 
-    # vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=30, end_time=None)
-    vd.process_video('test_video.mp4', outfile='test_video_processed.mp4')
+    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=38, end_time=None)
+    # vd.process_video('test_video.mp4', outfile='test_video_processed.mp4')
 
     # NOTE: feature ordering really has an effect!
