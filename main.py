@@ -294,10 +294,9 @@ class VehicleDetector:
 
     def _reduce_false_positives(self, car_boxes, box_confid):
         hm = self.img_blank.copy()
-        for box in car_boxes:
+        for box, score in zip(car_boxes, box_confid):
             # add heat to all pixels inside each bbox
-            hm[box[0][1]:box[1][1], box[0][0]:box[1][0]] += 1
-        heatmap = hm.copy()
+            hm[box[0][1]:box[1][1], box[0][0]:box[1][0]] += score
 
         self.hm_buffer.append(hm)
         if len(self.hm_buffer) == self.HEATMAP_BUFFER_LEN:
@@ -307,9 +306,21 @@ class VehicleDetector:
 
             # threshold away "cool" detections
             threshold = hm.max() - 5.0*self.HEATMAP_BUFFER_LEN
-            hm[hm <= 18] = 0
+            hm[hm <= 6] = 0  # works rather well
+
         # identify connected components
         img_labeled, num_objects = label(hm)
+
+        # fig, ax = plt.subplots(2, 2)
+        # ax[0, 0].set_title('Current frame')
+        # ax[0, 0].imshow(heatmap)
+        # ax[0, 1].set_title('Sum')
+        # ax[0, 1].imshow(hm)
+        # ax[1, 0].set_title('Weighted Average')
+        # ax[1, 0].imshow(np.average(np.array(self.hm_buffer), weights=self.hm_weights, axis=0))
+        # ax[1, 1].set_title('Weighted Average')
+        # w = [1 / (2 ** i) for i in range(self.HEATMAP_BUFFER_LEN)]
+        # ax[1, 1].imshow(np.average(np.array(self.hm_buffer), weights=w, axis=0))
 
         # compute bbox coordinates of the found objects
         car_boxes = []
@@ -347,7 +358,7 @@ class VehicleDetector:
         car_boxes = []
         box_confidences = []
         # y_start, y_stop, scale configurations
-        configs = [[400, 556, 1.5], [400, 656, 2.0]]
+        configs = [[400, 556, 1.5], [400, 656, 2.0], [400, 496, 1.0]]
         for config in configs:
             # boxes, c = self._find_cars(img_rgb, config[0], config[1], config[2])
             boxes, c = self._find_cars(img_rgb, *config)
@@ -497,9 +508,10 @@ class VehicleDetector:
 
 if __name__ == '__main__':
     data_file = 'data_hog-all-ch-ycc.pkl'
-    clf_file = 'linsvc_hog-all-ch-ycc.pkl'
+    clf_file = 'linsvc_C=0.1-hog-all-ch-ycc.pkl'
     vd = VehicleDetector()
     # vd.build_features(data_file)
+    # vd.classifier.set_params(C=10e-4)
     # vd.train_classifier(data_file, dump_file=clf_file, diag=True)
     vd.set_classifier(clf_file, data_file)
 
@@ -511,7 +523,7 @@ if __name__ == '__main__':
     #     ax[i].imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
     # plt.show()
 
-    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=41, end_time=None)
+    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=25, end_time=None)
     # vd.process_video('test_video.mp4', outfile='test_video_processed.mp4')
 
     # NOTE: feature ordering really has an effect!
