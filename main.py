@@ -63,7 +63,7 @@ class VehicleDetector:
                                                    xy_window=rs[2], xy_overlap=rs[3]))
 
         # pre-allocate blank image for speed
-        self.img_blank = np.zeros(self.IMG_SHAPE[:2], dtype=np.uint8)
+        self.img_blank = np.zeros(self.IMG_SHAPE[:2], dtype=np.float32)
 
     def _slide_window(self, x_start_stop=[None, None], y_start_stop=[None, None],
                       xy_window=(64, 64), xy_overlap=(0.5, 0.5)):
@@ -137,6 +137,7 @@ class VehicleDetector:
         hist_bins = 32
 
         on_windows = []
+        win_confid = []
         img = img.astype(np.float32) / 255
 
         img_tosearch = img[ystart:ystop, :, :]
@@ -197,8 +198,9 @@ class VehicleDetector:
                     win_draw = np.int(window * scale)
                     on_windows.append(((xbox_left, ytop_draw + ystart),
                                        (xbox_left + win_draw, ytop_draw + win_draw + ystart)))
+                    win_confid.append(self.classifier.decision_function(test_features))
 
-        return on_windows
+        return on_windows, win_confid
 
     def _extract_features(self, img_rgb, hog=True, color_hist=True, raw_pix=True):
         features = []
@@ -280,11 +282,22 @@ class VehicleDetector:
         # Return the image copy with boxes drawn
         return imcopy
 
-    def _reduce_false_positives(self, car_boxes):
+    def _draw_heatmap(self, img_out, heat_map, scale=0.2):
+        hm_dim = [int(self.IMG_SHAPE[0] * scale), int(self.IMG_SHAPE[1] * scale)]
+        # resize heat-map to fit into frame corner
+        heat_map = cv2.resize(heat_map, (hm_dim[1], hm_dim[0]))
+        # run heat-map through colormap to make it RGB
+        colormap = plt.get_cmap('hot')
+        heat_map_rgb = colormap(heat_map/heat_map.max())[..., :3]
+        img_out[20:20 + hm_dim[0], 20:20 + hm_dim[1]] = heat_map_rgb * 255
+        return img_out
+
+    def _reduce_false_positives(self, car_boxes, box_confid):
         hm = self.img_blank.copy()
         for box in car_boxes:
             # add heat to all pixels inside each bbox
             hm[box[0][1]:box[1][1], box[0][0]:box[1][0]] += 1
+        heatmap = hm.copy()
 
         self.hm_buffer.append(hm)
         if len(self.hm_buffer) == self.HEATMAP_BUFFER_LEN:
@@ -293,8 +306,8 @@ class VehicleDetector:
             hm = np.sum(self.hm_buffer, axis=0)
 
             # threshold away "cool" detections
-            threshold = hm.max() - 8.0*self.HEATMAP_BUFFER_LEN
-            hm[hm <= threshold] = 0
+            threshold = hm.max() - 5.0*self.HEATMAP_BUFFER_LEN
+            hm[hm <= 18] = 0
         # identify connected components
         img_labeled, num_objects = label(hm)
 
@@ -306,7 +319,7 @@ class VehicleDetector:
             nonzerox = np.array(nonzero[1])
             car_boxes.append(((np.min(nonzerox), np.min(nonzeroy)), (np.max(nonzerox), np.max(nonzeroy))))
 
-        return car_boxes
+        return car_boxes, np.sum(self.hm_buffer, axis=0)
 
     def _process_frame(self, img_rgb):
         # vehicle detection pipeline
@@ -330,15 +343,29 @@ class VehicleDetector:
         # car_boxes = [self.windows[i] for i in np.argwhere(y_pred == self.LABEL_CAR)[:, 0]]
 
         # alternative: using HOG subsampling
-        car_boxes = self._find_cars(img_rgb, 400, 556, 1.5)
-        car_boxes.extend(self._find_cars(img_rgb, 400, 656, 2.0))
+
+        car_boxes = []
+        box_confidences = []
+        # y_start, y_stop, scale configurations
+        configs = [[400, 556, 1.5], [400, 656, 2.0]]
+        for config in configs:
+            # boxes, c = self._find_cars(img_rgb, config[0], config[1], config[2])
+            boxes, c = self._find_cars(img_rgb, *config)
+            car_boxes.extend(boxes)
+            box_confidences.extend(c)
         # car_boxes.extend(self._find_cars(img_rgb, 400, 656, 2.5))
+        # car_boxes = self._find_cars(img_rgb, 400, 528, 1.5)
+        # car_boxes.extend(self._find_cars(img_rgb, 400, 556, 2.0))
+        # car_boxes.extend(self._find_cars(img_rgb, 450, 656, 2.5))
 
         # reduce false positives
-        car_boxes = self._reduce_false_positives(car_boxes)
+        car_boxes, heat_map = self._reduce_false_positives(car_boxes, box_confidences)
 
         # draw bounding boxes around detected cars
         img_out = self._draw_boxes(img_rgb, car_boxes, thick=3)
+
+        # draw heat-map into the frame's corner
+        img_out = self._draw_heatmap(img_out, heat_map)
 
         return img_out
 
@@ -476,10 +503,6 @@ if __name__ == '__main__':
     # vd.train_classifier(data_file, dump_file=clf_file, diag=True)
     vd.set_classifier(clf_file, data_file)
 
-    # file = joblib.load('clf_pickle_all_v1.p')
-    # vd.classifier = file['svc']
-    # vd.scaler = file['scaler']
-
     # TODO: with classifier save also feature parameters
     # test_files = glob.glob(os.path.join(vd.IMGDIR_TEST, '*.jpg'))
     # fig, ax = plt.subplots(1, len(test_files))
@@ -488,7 +511,7 @@ if __name__ == '__main__':
     #     ax[i].imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
     # plt.show()
 
-    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=38, end_time=None)
+    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=41, end_time=None)
     # vd.process_video('test_video.mp4', outfile='test_video_processed.mp4')
 
     # NOTE: feature ordering really has an effect!
