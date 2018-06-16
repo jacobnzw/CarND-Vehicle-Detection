@@ -305,7 +305,6 @@ class VehicleDetector:
             hm = np.sum(self.hm_buffer, axis=0)
 
             # threshold away "cool" detections
-            threshold = hm.max() - 5.0*self.HEATMAP_BUFFER_LEN
             hm[hm <= 6] = 0  # works rather well
 
         # identify connected components
@@ -360,14 +359,9 @@ class VehicleDetector:
         # y_start, y_stop, scale configurations
         configs = [[400, 556, 1.5], [400, 656, 2.0], [400, 496, 1.0]]
         for config in configs:
-            # boxes, c = self._find_cars(img_rgb, config[0], config[1], config[2])
             boxes, c = self._find_cars(img_rgb, *config)
             car_boxes.extend(boxes)
             box_confidences.extend(c)
-        # car_boxes.extend(self._find_cars(img_rgb, 400, 656, 2.5))
-        # car_boxes = self._find_cars(img_rgb, 400, 528, 1.5)
-        # car_boxes.extend(self._find_cars(img_rgb, 400, 556, 2.0))
-        # car_boxes.extend(self._find_cars(img_rgb, 450, 656, 2.5))
 
         # reduce false positives
         car_boxes, heat_map = self._reduce_false_positives(car_boxes, box_confidences)
@@ -523,7 +517,7 @@ if __name__ == '__main__':
     #     ax[i].imshow(cv2.cvtColor(out, cv2.COLOR_BGR2RGB))
     # plt.show()
 
-    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=25, end_time=None)
+    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=0, end_time=None)
     # vd.process_video('test_video.mp4', outfile='test_video_processed.mp4')
 
     # NOTE: feature ordering really has an effect!
