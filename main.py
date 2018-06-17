@@ -521,28 +521,27 @@ class VehicleDetector:
         else:
             self.classifier.fit(X, y)
 
-        if dump_file is not None:
-            # dump classifier using dump_file name
-            joblib.dump(self.classifier, dump_file)
-            print('Classifier saved to {}'.format(dump_file))
-        else:
-            # dump classifier using default name
-            joblib.dump(self.classifier, 'clf_default')
-            print('Classifier saved to clf_default')
+        if dump_file is None:
+            dump_file = 'clf_default'
 
-    def set_classifier(self, clf_file, data_file):
-        self.classifier = joblib.load(clf_file)
-        self.scaler = joblib.load(data_file)['scaler']
+        # dump classifier and scaler
+        joblib.dump({'classifier': self.classifier, 'scaler': self.scaler}, dump_file)
+        print('Classifier saved to {}'.format(dump_file))
+
+    def set_classifier(self, clf_file):
+        dump = joblib.load(clf_file)
+        self.classifier = dump['classifier']
+        self.scaler = dump['scaler']
 
 
 if __name__ == '__main__':
     data_file = 'data_hog-all-ch-ycc.pkl'
-    clf_file = 'linsvc_C=0.1-hog-all-ch-ycc.pkl'
+    clf_file = 'linsvc_hog-all-ch-ycc.pkl'
     vd = VehicleDetector()
     # vd.build_features(data_file)
-    # vd.classifier.set_params(C=10e-4)
-    # vd.train_classifier(data_file, dump_file=clf_file, diag=True)
-    vd.set_classifier(clf_file, data_file)
+    # vd.classifier.set_params(C=0.1)
+    vd.train_classifier(data_file, dump_file=clf_file, diag=True)
+    vd.set_classifier(clf_file)
 
     # process some test images
     # test_files = glob.glob(os.path.join(vd.IMGDIR_TEST, '*.jpg'))
@@ -558,7 +557,7 @@ if __name__ == '__main__':
     # plt.show()
 
     # process video
-    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=40, end_time=None)
+    # vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=0, end_time=None)
     # vd.process_video('test_video.mp4', outfile='test_video_processed.mp4')
 
     # some visualizations
