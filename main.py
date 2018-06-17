@@ -540,7 +540,7 @@ if __name__ == '__main__':
     vd = VehicleDetector()
     # vd.build_features(data_file)
     # vd.classifier.set_params(C=0.1)
-    vd.train_classifier(data_file, dump_file=clf_file, diag=True)
+    # vd.train_classifier(data_file, dump_file=clf_file, diag=True)
     vd.set_classifier(clf_file)
 
     # process some test images
@@ -557,7 +557,7 @@ if __name__ == '__main__':
     # plt.show()
 
     # process video
-    # vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=0, end_time=None)
+    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=0, end_time=None)
     # vd.process_video('test_video.mp4', outfile='test_video_processed.mp4')
 
     # some visualizations
