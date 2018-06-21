@@ -16,6 +16,10 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.cross_validation import train_test_split
 from sklearn.svm import LinearSVC, SVC
 
+# TODO: call function with library prefixes, e.g: sklearn.metrics.accuracy_score() rather than accuracy_score()
+# TODO: add in the code for lane finding
+# TODO: trim the unnecessary methods
+
 
 class VehicleDetector:
     """
