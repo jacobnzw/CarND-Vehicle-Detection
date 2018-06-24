@@ -19,6 +19,7 @@ from sklearn.svm import LinearSVC, SVC
 # TODO: call function with library prefixes, e.g: sklearn.metrics.accuracy_score() rather than accuracy_score()
 # TODO: add in the code for lane finding
 # TODO: trim the unnecessary methods
+# TODO: optimization (profile, cv2.HOGDescriptor, cython)
 
 
 class VehicleDetector:
@@ -33,15 +34,6 @@ class VehicleDetector:
     BASE_WIN_SHAPE = (64, 64)
     HEATMAP_BUFFER_LEN = 10  # combine heat-maps from HEATMAP_BUFFER_LEN past frames
     HEATMAP_THRESHOLD = 8
-    # ROI_SPECS = (
-    #     ((0, 380), (1280, 650), (128, 128), (0.9, 0.25)),
-    #     ((0, 380), (1280, 522), (96, 96), (0.9, 0.25)),
-    #     ((0, 380), (1280, 458), (64, 64), (0.9, 0.25)),
-    # )
-    ROI_SPECS = (
-        ((200, 400), (1280, 656), (128, 128), (0.75, 0.75)),
-        ((200, 400), (1280, 556), (64, 64), (0.75, 0.75)),
-    )
 
     def __init__(self):
         self.boxes = []  # list of bounding boxes pre-computed
@@ -60,80 +52,16 @@ class VehicleDetector:
         self.windows = []
         # self.windows.extend(self._slide_window(y_start_stop=[400, 656], x_start_stop=[None, None],
         #                                        xy_window=(96, 96), xy_overlap=(0.75, 0.75)))
-        for rs in self.ROI_SPECS:
-            y_range = [rs[0][1], rs[1][1]]
-            x_range = [rs[0][0], rs[1][0]]
-            self.windows.extend(self._slide_window(y_start_stop=y_range, x_start_stop=x_range,
-                                                   xy_window=rs[2], xy_overlap=rs[3]))
+        # for rs in self.ROI_SPECS:
+        #     y_range = [rs[0][1], rs[1][1]]
+        #     x_range = [rs[0][0], rs[1][0]]
+        #     self.windows.extend(self._slide_window(y_start_stop=y_range, x_start_stop=x_range,
+        #                                            xy_window=rs[2], xy_overlap=rs[3]))
 
         # pre-allocate blank image for speed
         self.img_blank = np.zeros(self.IMG_SHAPE[:2], dtype=np.float32)
 
-    def _slide_window(self, x_start_stop=[None, None], y_start_stop=[None, None],
-                      xy_window=(64, 64), xy_overlap=(0.5, 0.5)):
-        """
-        Records corners of a window in each step as it slides across the image (from top left to bottom right).
-
-        Parameters
-        ----------
-        img : ndarray
-        x_start_stop : [int, int] or [None, None]
-            Starting and stopping position of a window sliding in x (horizontal) direction.
-        y_start_stop : [int, int] or [None, None]
-            Starting and stopping position of a window sliding in y (vertical) direction.
-        xy_window : (int, int)
-            Window width and height
-        xy_overlap : (float, float)
-            Window overlap in x (horizontal) and y (vertical) directions.
-
-        Notes
-        -----
-        Taken from Udacity's sliding window implementation. Minor modifications added.
-
-        Returns
-        -------
-            List of tuples ((startx, starty), (endx, endy)), where (startx, starty) is top left corner and (endx, endy) is
-            bottom right window corner.
-        """
-        # If x and/or y start/stop positions not defined, set to image size
-        if x_start_stop[0] is None:
-            x_start_stop[0] = 0
-        if x_start_stop[1] is None:
-            x_start_stop[1] = self.IMG_SHAPE[1]
-        if y_start_stop[0] is None:
-            y_start_stop[0] = 0
-        if y_start_stop[1] is None:
-            y_start_stop[1] = self.IMG_SHAPE[0]
-        # Compute the span of the region to be searched
-        xspan = x_start_stop[1] - x_start_stop[0]
-        yspan = y_start_stop[1] - y_start_stop[0]
-        # Compute the number of pixels per step in x/y
-        nx_pix_per_step = np.int(xy_window[0] * (1 - xy_overlap[0]))
-        ny_pix_per_step = np.int(xy_window[1] * (1 - xy_overlap[1]))
-        # Compute the number of windows in x/y
-        nx_buffer = np.int(xy_window[0] * (xy_overlap[0]))
-        ny_buffer = np.int(xy_window[1] * (xy_overlap[1]))
-        nx_windows = np.int((xspan - nx_buffer) / nx_pix_per_step)
-        ny_windows = np.int((yspan - ny_buffer) / ny_pix_per_step)
-        # Initialize a list to append window positions to
-        window_list = []
-        # Loop through finding x and y window positions
-        # Note: you could vectorize this step, but in practice
-        # you'll be considering windows one by one with your
-        # classifier, so looping makes sense
-        for ys in range(ny_windows):
-            for xs in range(nx_windows):
-                # Calculate window position
-                startx = xs * nx_pix_per_step + x_start_stop[0]
-                endx = startx + xy_window[0]
-                starty = ys * ny_pix_per_step + y_start_stop[0]
-                endy = starty + xy_window[1]
-                # Append window position to list
-                window_list.append(((startx, starty), (endx, endy)))
-        # Return the list of windows
-        return window_list
-
-    def _find_cars(self, img, ystart, ystop, scale):
+    def _find_cars(self, img, ystart, ystop, xstart, xstop, scale):
         orient = 9
         pix_per_cell = 8
         cell_per_block = 2
@@ -144,7 +72,7 @@ class VehicleDetector:
         win_confid = []
         img = img.astype(np.float32) / 255
 
-        img_tosearch = img[ystart:ystop, :, :]
+        img_tosearch = img[ystart:ystop, xstart:xstop, :]
         ctrans_tosearch = cv2.cvtColor(img_tosearch, cv2.COLOR_RGB2YCrCb)
 
         if scale != 1:
@@ -161,9 +89,10 @@ class VehicleDetector:
         nfeat_per_block = orient * cell_per_block ** 2
 
         # 64 was the orginal sampling rate, with 8 cells and 8 pix per cell
-        window = 64
+        window = self.BASE_WIN_SHAPE[0]
         nblocks_per_window = (window // pix_per_cell) - 1
-        cells_per_step = 2  # Instead of overlap, define how many cells to step: there are 8 cells, and move 2 cells per step, 75% overlap
+        # Instead of overlap, define how many cells to step: there are 8 cells, and move 2 cells per step, 75% overlap
+        cells_per_step = 2
         nxsteps = (nxblocks - nblocks_per_window) // cells_per_step
         nysteps = (nyblocks - nblocks_per_window) // cells_per_step
 
@@ -186,7 +115,7 @@ class VehicleDetector:
                 ytop = ypos * pix_per_cell
 
                 # Extract the image patch
-                subimg = cv2.resize(ctrans_tosearch[ytop:ytop + window, xleft:xleft + window], (64, 64))
+                subimg = cv2.resize(ctrans_tosearch[ytop:ytop + window, xleft:xleft + window], self.BASE_WIN_SHAPE)
                 # Get color features
                 spatial_features = self._get_raw_pixel_features(subimg, size=spatial_size)
                 hist_features = self._get_color_histogram_features(subimg, nbins=hist_bins)
@@ -200,8 +129,8 @@ class VehicleDetector:
                     xbox_left = np.int(xleft * scale)
                     ytop_draw = np.int(ytop * scale)
                     win_draw = np.int(window * scale)
-                    on_windows.append(((xbox_left, ytop_draw + ystart),
-                                       (xbox_left + win_draw, ytop_draw + win_draw + ystart)))
+                    on_windows.append(((xbox_left + xstart, ytop_draw + ystart),
+                                       (xbox_left + win_draw + xstart, ytop_draw + win_draw + ystart)))
                     win_confid.append(self.classifier.decision_function(test_features))
 
         return on_windows, win_confid
@@ -336,32 +265,13 @@ class VehicleDetector:
         return car_boxes, np.sum(self.hm_buffer, axis=0)
 
     def _process_frame(self, img_rgb):
-        # vehicle detection pipeline
-
-        # # get image crops for all depths
-        # # extract features for all image crops
-        # X_test = []
-        # for win in self.windows:
-        #     crop = img_bgr[win[0][1]:win[1][1], win[0][0]:win[1][0]]
-        #     crop = cv2.resize(crop, self.BASE_WIN_SHAPE)
-        #     X_test.append(self._extract_features(crop))
-        #     # X_test[i, :] = self._extract_features(crop)
-        # X_test = np.array(X_test)
-        #
-        # # feature normalization
-        # X_test = self.scaler.transform(X_test)
-        #
-        # # feed image crops to the classifier
-        # y_pred = self.classifier.predict(X_test)
-        # # pick out boxes predicted as containing a car
-        # car_boxes = [self.windows[i] for i in np.argwhere(y_pred == self.LABEL_CAR)[:, 0]]
-
-        # alternative: using HOG subsampling
-
         car_boxes = []
         box_confidences = []
         # y_start, y_stop, scale configurations
-        configs = [[400, 556, 1.5], [400, 656, 2.0], [400, 496, 1.0]]
+        # TODO: improve ROIs x-axis restrictions
+        configs = [[400, 496, 0, 1280, 1.0],
+                   [400, 556, 0, 1280, 1.5],
+                   [400, 656, 0, 1280, 2.0]]
         for config in configs:
             boxes, c = self._find_cars(img_rgb, *config)
             car_boxes.extend(boxes)
@@ -561,7 +471,7 @@ if __name__ == '__main__':
     # plt.show()
 
     # process video
-    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=0, end_time=None)
+    vd.process_video('project_video.mp4', outfile='project_video_processed.mp4', start_time=38, end_time=43)
     # vd.process_video('test_video.mp4', outfile='test_video_processed.mp4')
 
     # some visualizations
