@@ -37,7 +37,7 @@ class VehicleDetector:
     HEATMAP_THRESHOLD = 8
 
     def __init__(self):
-        self.classifier = LinearSVC()
+        self.classifier = None
 
         # heat-map buffer
         self.hm_buffer = deque(maxlen=self.HEATMAP_BUFFER_LEN)
@@ -62,12 +62,11 @@ class VehicleDetector:
         self.img_blank = np.zeros(self.IMG_SHAPE[:2], dtype=np.float32)
 
     def _find_cars(self, img, ystart, ystop, xstart, xstop, scale):
-        # TODO: make these into class members
-        orient = 9
-        pix_per_cell = 8
-        cell_per_block = 2
-        spatial_size = (32, 32)
-        hist_bins = 32
+        orient = self.feat_specs['hog_orient']
+        pix_per_cell = self.feat_specs['hog_pix_per_cell']
+        cell_per_block = self.feat_specs['hog_cell_per_block']
+        spatial_size = self.feat_specs['sb_size']
+        hist_bins = self.feat_specs['ch_nbins']
 
         on_windows = []
         win_confid = []
@@ -266,6 +265,10 @@ class VehicleDetector:
         return car_boxes, np.sum(self.hm_buffer, axis=0)
 
     def _process_frame(self, img_rgb):
+        # check that classifier has been set/trained
+        if self.classifier is None:
+            raise AttributeError('Classifier not set. Set it using VehicleDetector().set_classifier().')
+
         car_boxes = []
         box_confidences = []
         for roi in self.regions_of_interest:
@@ -422,6 +425,7 @@ class VehicleDetector:
         print()
 
         print('Fitting classifier ...')
+        self.classifier = LinearSVC()
         if diag:  # do we wish to report performance for tunning?
             X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8)
             self.classifier.fit(X_train, y_train)
@@ -465,7 +469,7 @@ if __name__ == '__main__':
     vd = VehicleDetector()
     # vd.build_features(feat_specs, outfile=data_file)
     # vd.classifier.set_params(C=0.1)
-    vd.train_classifier(data_file, dump_file=clf_file, diag=True)
+    # vd.train_classifier(data_file, dump_file=clf_file, diag=True)
     vd.set_classifier(clf_file)
 
     # process some test images
