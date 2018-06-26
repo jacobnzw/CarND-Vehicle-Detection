@@ -14,7 +14,8 @@ from scipy.ndimage.measurements import label
 from sklearn.metrics import accuracy_score, recall_score, precision_score, make_scorer
 from sklearn.model_selection import GridSearchCV
 from sklearn.cross_validation import train_test_split
-from sklearn.svm import LinearSVC, SVC
+from sklearn.svm import LinearSVC
+import json
 
 # TODO: call function with library prefixes, e.g: sklearn.metrics.accuracy_score() rather than accuracy_score()
 # TODO: add in the code for lane finding
@@ -31,14 +32,15 @@ class VehicleDetector:
     LABEL_NONCAR = 0
     IMGDIR_TEST = 'test_images'
     IMG_SHAPE = (720, 1280, 3)
-    BASE_WIN_SHAPE = (64, 64)
+    BASE_WIN_SIZE = (64, 64)
     HEATMAP_BUFFER_LEN = 10  # combine heat-maps from HEATMAP_BUFFER_LEN past frames
     HEATMAP_THRESHOLD = 8
 
     def __init__(self):
-        self.boxes = []  # list of bounding boxes pre-computed
-        self.classifier = LinearSVC()  # handle for storing a classifier
-        self.hm_buffer = deque(maxlen=self.HEATMAP_BUFFER_LEN)  # list of heat maps from several previous frames
+        self.classifier = LinearSVC()
+
+        # heat-map buffer
+        self.hm_buffer = deque(maxlen=self.HEATMAP_BUFFER_LEN)
         # self.hm_weights = np.ones((self.HEATMAP_BUFFER_LEN, )) / self.HEATMAP_BUFFER_LEN
         # decay for weighted averaging of past heat-maps
         self.hm_weights = np.array([(1-2/(self.HEATMAP_BUFFER_LEN))**i for i in range(self.HEATMAP_BUFFER_LEN)])
@@ -47,21 +49,20 @@ class VehicleDetector:
         # standard feature scaler
         self.scaler = StandardScaler()
 
-        # pre-compute windows
-        # list of windows from all depth levels
-        self.windows = []
-        # self.windows.extend(self._slide_window(y_start_stop=[400, 656], x_start_stop=[None, None],
-        #                                        xy_window=(96, 96), xy_overlap=(0.75, 0.75)))
-        # for rs in self.ROI_SPECS:
-        #     y_range = [rs[0][1], rs[1][1]]
-        #     x_range = [rs[0][0], rs[1][0]]
-        #     self.windows.extend(self._slide_window(y_start_stop=y_range, x_start_stop=x_range,
-        #                                            xy_window=rs[2], xy_overlap=rs[3]))
+        # y_start, y_stop, xstart, xstop, window_scale configurations
+        # window_scale is multiplier of the base
+        self.regions_of_interest = [[400, 496, 0, 1280, 1.0],
+                                    [400, 556, 0, 1280, 1.5],
+                                    [400, 656, 0, 1280, 2.0]]
+
+        # feature specs
+        self.feat_specs = {}
 
         # pre-allocate blank image for speed
         self.img_blank = np.zeros(self.IMG_SHAPE[:2], dtype=np.float32)
 
     def _find_cars(self, img, ystart, ystop, xstart, xstop, scale):
+        # TODO: make these into class members
         orient = 9
         pix_per_cell = 8
         cell_per_block = 2
@@ -86,10 +87,9 @@ class VehicleDetector:
         # Define blocks and steps as above, hold the number of hog cells
         nxblocks = (ch1.shape[1] // pix_per_cell) - 1
         nyblocks = (ch1.shape[0] // pix_per_cell) - 1
-        nfeat_per_block = orient * cell_per_block ** 2
 
-        # 64 was the orginal sampling rate, with 8 cells and 8 pix per cell
-        window = self.BASE_WIN_SHAPE[0]
+        # 64 was the original sampling rate, with 8 cells and 8 pix per cell
+        window = self.BASE_WIN_SIZE[0]
         nblocks_per_window = (window // pix_per_cell) - 1
         # Instead of overlap, define how many cells to step: there are 8 cells, and move 2 cells per step, 75% overlap
         cells_per_step = 2
@@ -115,7 +115,7 @@ class VehicleDetector:
                 ytop = ypos * pix_per_cell
 
                 # Extract the image patch
-                subimg = cv2.resize(ctrans_tosearch[ytop:ytop + window, xleft:xleft + window], self.BASE_WIN_SHAPE)
+                subimg = cv2.resize(ctrans_tosearch[ytop:ytop + window, xleft:xleft + window], self.BASE_WIN_SIZE)
                 # Get color features
                 spatial_features = self._get_raw_pixel_features(subimg, size=spatial_size)
                 hist_features = self._get_color_histogram_features(subimg, nbins=hist_bins)
@@ -135,20 +135,21 @@ class VehicleDetector:
 
         return on_windows, win_confid
 
-    def _extract_features(self, img_rgb, hog=True, color_hist=True, raw_pix=True):
+    def _extract_features(self, img_rgb, hog=True, ch=True, sb=True, hog_orient=9, hog_pix_per_cell=8,
+                          hog_cell_per_block=2, sb_size=(32, 32), ch_nbins=32):
         features = []
         img_con = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2YCrCb)
-        if raw_pix:
-            # raw pixel values
-            features.extend(self._get_raw_pixel_features(img_con, size=(32, 32)))
-        if color_hist:
+        if sb:
+            # spatial binning (raw pixel values of sized down image)
+            features.extend(self._get_raw_pixel_features(img_con, size=sb_size))
+        if ch:
             # color histograms
-            features.extend(self._get_color_histogram_features(img_con))
+            features.extend(self._get_color_histogram_features(img_con, nbins=ch_nbins))
         if hog:
             # histogram of oriented gradients
-            features.extend(self._get_hog_features(img_con[..., 0], 9, 8, 2))
-            features.extend(self._get_hog_features(img_con[..., 1], 9, 8, 2))
-            features.extend(self._get_hog_features(img_con[..., 2], 9, 8, 2))
+            features.extend(self._get_hog_features(img_con[..., 0], hog_orient, hog_pix_per_cell, hog_cell_per_block))
+            features.extend(self._get_hog_features(img_con[..., 1], hog_orient, hog_pix_per_cell, hog_cell_per_block))
+            features.extend(self._get_hog_features(img_con[..., 2], hog_orient, hog_pix_per_cell, hog_cell_per_block))
         return features
 
     def _get_hog_features(self, img, orient, pix_per_cell, cell_per_block, vis=False, feature_vec=True):
@@ -230,10 +231,10 @@ class VehicleDetector:
         for box, score in zip(car_boxes, box_confid):
             # add heat to all pixels inside each bbox
             hm[box[0][1]:box[1][1], box[0][0]:box[1][0]] += score
-
         self.hm_buffer.append(hm)
+
+        # integrate heat-maps from past frames when the buffer fills up
         if len(self.hm_buffer) == self.HEATMAP_BUFFER_LEN:
-            # integrate heat-maps from past frames when the buffer fills up
             # hm = np.uint8(np.average(np.array(self.hm_buffer), axis=0, weights=self.hm_weights))
             hm = np.sum(self.hm_buffer, axis=0)
 
@@ -267,13 +268,8 @@ class VehicleDetector:
     def _process_frame(self, img_rgb):
         car_boxes = []
         box_confidences = []
-        # y_start, y_stop, scale configurations
-        # TODO: improve ROIs x-axis restrictions
-        configs = [[400, 496, 0, 1280, 1.0],
-                   [400, 556, 0, 1280, 1.5],
-                   [400, 656, 0, 1280, 2.0]]
-        for config in configs:
-            boxes, c = self._find_cars(img_rgb, *config)
+        for roi in self.regions_of_interest:
+            boxes, c = self._find_cars(img_rgb, *roi)
             car_boxes.extend(boxes)
             box_confidences.extend(c)
 
@@ -374,7 +370,7 @@ class VehicleDetector:
         # cv2.imwrite('frame_{:d}'.format(idx), img_out)
         # cv2.imwrite('heatmap_{:d}'.format(idx), heat_map)
 
-    def build_features(self, outfile=None, hog=True, color_hist=True, raw_pix=True):
+    def build_features(self, feature_specs, outfile=None):
         # get file names for cars and non-cars
         car_list = glob.glob(os.path.join('vehicles', '*', '*.png'))
         noncar_list = glob.glob(os.path.join('non-vehicles', '*', '*.png'))
@@ -390,11 +386,11 @@ class VehicleDetector:
         labels = np.concatenate((np.ones(len(car_list)), np.zeros(len(noncar_list))))
         for file in car_list:
             img = mpimg.imread(file)
-            feat_vec = self._extract_features(img, hog, color_hist, raw_pix)
+            feat_vec = self._extract_features(img, **feature_specs)
             features.append(feat_vec)
         for file in noncar_list:
             img = mpimg.imread(file)
-            feat_vec = self._extract_features(img, hog, color_hist, raw_pix)
+            feat_vec = self._extract_features(img, **feature_specs)
             features.append(feat_vec)
 
         # shuffle features and labels
@@ -405,21 +401,25 @@ class VehicleDetector:
 
         # save extracted features and labels, if outfile provided
         if outfile is not None:
-            joblib.dump({'features': features, 'labels': labels, 'scaler': self.scaler}, outfile)
+            data_dict = {'features': features, 'labels': labels,
+                         'scaler': self.scaler, 'feature_specs': feature_specs}
+            joblib.dump(data_dict, outfile)
             print('Features saved in {}'.format(outfile))
         return features, labels
 
-    def train_classifier(self, data_file=None, dump_file=None, diag=False):
-        if data_file is not None:
-            # train using features/labels from data_file
-            print('Loading features from {}'.format(data_file))
-            data = joblib.load(data_file)
-            X, y = data['features'], data['labels']
-            self.scaler = data['scaler']
-        else:
-            # train using the standard data from build_features()
-            print('Building features ...')
-            X, y = self.build_features()
+    def train_classifier(self, feature_data_file, dump_file=None, diag=False):
+        print('Loading features from {}'.format(feature_data_file))
+        data = joblib.load(feature_data_file)
+        X, y = data['features'], data['labels']
+        self.scaler = data['scaler']
+        self.feat_specs = data['feature_specs']
+
+        # print some info about features
+        print()
+        print('Feature vector length: {:d}'.format(X.shape[1]))
+        print('Feature specs: ')
+        print(json.dumps(self.feat_specs, indent=4, sort_keys=True))
+        print()
 
         print('Fitting classifier ...')
         if diag:  # do we wish to report performance for tunning?
@@ -435,26 +435,37 @@ class VehicleDetector:
         else:
             self.classifier.fit(X, y)
 
+        # dump classifier, scaler and feature specs
         if dump_file is None:
             dump_file = 'clf_default'
-
-        # dump classifier and scaler
-        joblib.dump({'classifier': self.classifier, 'scaler': self.scaler}, dump_file)
-        print('Classifier saved to {}'.format(dump_file))
+        data_dict = {'classifier': self.classifier, 'scaler': self.scaler, 'feature_specs': feat_specs}
+        joblib.dump(data_dict, dump_file)
+        print('Classifier saved to {}.'.format(dump_file))
 
     def set_classifier(self, clf_file):
         dump = joblib.load(clf_file)
         self.classifier = dump['classifier']
         self.scaler = dump['scaler']
+        self.feat_specs = dump['feature_specs']
 
 
 if __name__ == '__main__':
     data_file = 'data_hog-all-ch-ycc.pkl'
     clf_file = 'linsvc_hog-all-ch-ycc.pkl'
+    feat_specs = {
+        'hog': True,  # histogram of oriented gradients
+        'hog_orient': 9,
+        'hog_pix_per_cell': 8,
+        'hog_cell_per_block': 2,
+        'ch': True,  # color histogram
+        'ch_nbins': 32,
+        'sb': True,  # spatial binning
+        'sb_size': (32, 32),
+    }
     vd = VehicleDetector()
-    # vd.build_features(data_file)
+    # vd.build_features(feat_specs, outfile=data_file)
     # vd.classifier.set_params(C=0.1)
-    # vd.train_classifier(data_file, dump_file=clf_file, diag=True)
+    vd.train_classifier(data_file, dump_file=clf_file, diag=True)
     vd.set_classifier(clf_file)
 
     # process some test images
